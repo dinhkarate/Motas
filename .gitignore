@@ -1,0 +1,8 @@
+.DS_Store
+.pi/
+.build/
+.swiftpm/
+DerivedData/
+*.xcuserstate
+xcuserdata/
+Motas.xcodeproj/

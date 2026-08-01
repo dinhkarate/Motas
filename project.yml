@@ -1,0 +1,75 @@
+name: Motas
+options:
+  bundleIdPrefix: dev.motas
+  deploymentTarget:
+    macOS: "14.0"
+  createIntermediateGroups: true
+settings:
+  base:
+    SWIFT_VERSION: "6.0"
+    DEVELOPMENT_TEAM: ""
+    CODE_SIGN_STYLE: Automatic
+packages:
+  MotasCore:
+    path: .
+targets:
+  Motas:
+    type: application
+    platform: macOS
+    sources:
+      - path: Sources/MotasApp
+    dependencies:
+      - package: MotasCore
+        product: MotasCore
+      - target: MotasWidget
+        embed: true
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: dev.motas.app
+        PRODUCT_NAME: Motas
+        GENERATE_INFOPLIST_FILE: true
+        INFOPLIST_KEY_CFBundleDisplayName: Motas
+        INFOPLIST_KEY_LSUIElement: true
+        INFOPLIST_KEY_NSHumanReadableCopyright: "Copyright © 2026 Motas"
+        CODE_SIGN_ENTITLEMENTS: Config/Motas.entitlements
+    scheme:
+      testTargets:
+        - MotasCoreTests
+  MotasWidget:
+    type: app-extension
+    platform: macOS
+    sources:
+      - path: Sources/MotasWidget
+    dependencies:
+      - package: MotasCore
+        product: MotasCore
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: dev.motas.app.widget
+        PRODUCT_NAME: MotasWidget
+        GENERATE_INFOPLIST_FILE: true
+        INFOPLIST_KEY_CFBundleDisplayName: Motas
+        INFOPLIST_KEY_NSExtension_NSExtensionPointIdentifier: com.apple.widgetkit-extension
+        SKIP_INSTALL: true
+        CODE_SIGN_ENTITLEMENTS: Config/MotasWidget.entitlements
+  MotasCoreTests:
+    type: bundle.unit-test
+    platform: macOS
+    sources:
+      - path: Tests/MotasCoreTests
+    dependencies:
+      - package: MotasCore
+        product: MotasCore
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: dev.motas.core-tests
+        GENERATE_INFOPLIST_FILE: true
+schemes:
+  Motas:
+    build:
+      targets:
+        Motas: all
+        MotasWidget: all
+    test:
+      targets:
+        - MotasCoreTests
