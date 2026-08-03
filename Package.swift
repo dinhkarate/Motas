@@ -19,7 +19,10 @@ let package = Package(
         .executableTarget(
             name: "MotasApp",
             dependencies: ["MotasCore"],
-            path: "Sources/MotasApp"
+            path: "Sources/MotasApp",
+            linkerSettings: [
+                .linkedFramework("Security"),
+            ]
         ),
         .testTarget(
             name: "MotasCoreTests",

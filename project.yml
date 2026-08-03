@@ -23,6 +23,7 @@ targets:
         product: MotasCore
       - target: MotasWidget
         embed: true
+      - sdk: Security.framework
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: dev.motas.app
