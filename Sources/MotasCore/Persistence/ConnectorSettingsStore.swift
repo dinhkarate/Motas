@@ -37,7 +37,7 @@ public struct JSONConnectorSettingsStore: ConnectorSettingsStore {
             guard envelope.schemaVersion <= MotasSettings.currentSchemaVersion else {
                 throw ConnectorSettingsStoreError.unsupportedSchemaVersion(envelope.schemaVersion)
             }
-            return try JSONDecoder().decode(MotasSettings.self, from: data)
+            return try JSONDecoder().decode(MotasSettings.self, from: data).validated()
         } catch let error as ConnectorSettingsStoreError {
             throw error
         } catch {
@@ -58,7 +58,7 @@ public struct JSONConnectorSettingsStore: ConnectorSettingsStore {
 
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys]
-        let data = try encoder.encode(settings)
+        let data = try encoder.encode(settings.validated())
         try data.write(to: fileURL, options: [.atomic])
     }
 }

@@ -64,7 +64,7 @@ Then enable the connector when running the prototype:
 MOTAS_CLAUDE_CODE_ENABLED=1 swift run MotasPrototype
 ```
 
-Override the cache location for testing or non-default installations:
+The normal app configuration surface is **Settings**, where the cache path and enabled state persist without storing a Claude credential. For testing or non-default installations, environment overrides remain available:
 
 ```bash
 MOTAS_CLAUDE_CODE_ENABLED=1 \

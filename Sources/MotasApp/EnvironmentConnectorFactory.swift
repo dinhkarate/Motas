@@ -12,19 +12,18 @@ enum EnvironmentConnectorFactory {
             environment: environment,
             secretStore: EmptySecretStore()
         )
-        return connectors(from: resolved, secretStore: EmptySecretStore())
+        return connectors(from: resolved)
     }
 
     /// Builds connectors from persisted settings plus environment overrides.
     static func connectors(
         resolved: ConnectorConfigurationResolver.Resolved
     ) -> [any StatusConnector] {
-        connectors(from: resolved, secretStore: EmptySecretStore())
+        connectors(from: resolved)
     }
 
     private static func connectors(
-        from resolved: ConnectorConfigurationResolver.Resolved,
-        secretStore: ConnectorSecretStore
+        from resolved: ConnectorConfigurationResolver.Resolved
     ) -> [any StatusConnector] {
         var connectors: [any StatusConnector] = []
 

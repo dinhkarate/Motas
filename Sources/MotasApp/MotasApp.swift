@@ -24,9 +24,22 @@ final class AppModel: ObservableObject {
     @Published private(set) var snapshot: StatusSnapshot
     @Published private(set) var lastRefreshError: String?
     @Published private(set) var isRefreshing = false
+    @Published private(set) var settings: MotasSettings
+    @Published private(set) var configurationError: String?
+    @Published private(set) var settingsSaveError: String?
+    @Published private(set) var isSavingSettings = false
+    @Published private(set) var isDemoMode = false
+    @Published private(set) var sourceLabels: ConnectorSourceLabels
 
     private var scenarioIndex = 0
-    private let liveConnectors: [any StatusConnector]
+    private var liveConnectors: [any StatusConnector] = []
+    private let settingsStore: any ConnectorSettingsStore
+    private let secretStore: any ConnectorSecretStore
+    private let environment: [String: String]
+    private var persistedSettingsExist = false
+    private var settingsLoadError: String?
+    private var refreshCoalescer = RefreshCoalescer()
+    private let automaticRefreshScheduler = AutomaticRefreshScheduler()
     private let scenarios: [(Date) -> StatusSnapshot] = [
         MockData.readySnapshot,
         MockData.cautionSnapshot,
@@ -34,30 +47,70 @@ final class AppModel: ObservableObject {
         MockData.proxyDownSnapshot,
     ]
 
-    init() {
-        liveConnectors = EnvironmentConnectorFactory.connectors()
-        snapshot = liveConnectors.isEmpty ? MockData.readySnapshot() : MockData.unknownSnapshot()
+    init(
+        settingsStore: (any ConnectorSettingsStore)? = nil,
+        secretStore: any ConnectorSecretStore = KeychainConnectorSecretStore(),
+        environment: [String: String] = ProcessInfo.processInfo.environment
+    ) {
+        self.settingsStore = settingsStore ?? Self.defaultSettingsStore()
+        self.secretStore = secretStore
+        self.environment = environment
+        settings = .default()
+        snapshot = MockData.unknownSnapshot()
+        sourceLabels = ConnectorSourceLabels(
+            claudeCodeEnabled: .disabled,
+            nineRouterEnabled: .disabled,
+            cliProxyAPIEnabled: .disabled
+        )
+
+        loadSettings()
+        rebuildConnectors()
+        snapshot = isDemoMode ? MockData.readySnapshot() : MockData.unknownSnapshot()
         persistSnapshot()
+
+        configureAutomaticRefresh()
         if !liveConnectors.isEmpty {
             Task { await refresh() }
         }
     }
 
+    /// Coalesces manual, startup, scheduled and post-save refresh requests into
+    /// a single active batch plus at most one current-configuration follow-up.
     func refresh() async {
-        guard !isRefreshing else { return }
+        guard var revision = refreshCoalescer.begin() else { return }
         isRefreshing = true
-        defer { isRefreshing = false }
 
-        if liveConnectors.isEmpty {
-            scenarioIndex = (scenarioIndex + 1) % scenarios.count
-            snapshot = scenarios[scenarioIndex](Date())
-        } else {
-            snapshot = await ConnectorRefresher(connectors: liveConnectors).refresh()
+        while true {
+            let connectors = liveConnectors
+            let demoMode = isDemoMode
+
+            let nextSnapshot: StatusSnapshot
+            if demoMode {
+                scenarioIndex = (scenarioIndex + 1) % scenarios.count
+                nextSnapshot = scenarios[scenarioIndex](Date())
+            } else if !connectors.isEmpty {
+                nextSnapshot = await ConnectorRefresher(connectors: connectors).refresh()
+            } else {
+                nextSnapshot = MockData.unknownSnapshot()
+            }
+
+            // A settings change may happen while the connector batch awaits.
+            // Do not publish results produced with obsolete endpoints/secrets.
+            if refreshCoalescer.shouldApplyResult(capturedAt: revision) {
+                snapshot = nextSnapshot
+                persistSnapshot()
+            }
+
+            guard refreshCoalescer.finish(), let nextRevision = refreshCoalescer.begin() else {
+                isRefreshing = false
+                return
+            }
+            revision = nextRevision
         }
-        persistSnapshot()
     }
 
     func selectScenario(_ state: ReadinessState) {
+        guard isDemoMode else { return }
         switch state {
         case .ready:
             snapshot = MockData.readySnapshot()
@@ -71,6 +124,100 @@ final class AppModel: ObservableObject {
             snapshot = MockData.readySnapshot()
         }
         persistSnapshot()
+    }
+
+    func saveSettings(
+        _ draft: MotasSettings,
+        secretUpdates: [ConnectorSecretKey: String],
+        secretRemovals: Set<ConnectorSecretKey>
+    ) async -> Bool {
+        guard !isSavingSettings else { return false }
+
+        let validated: MotasSettings
+        do {
+            validated = try draft.validated()
+        } catch {
+            settingsSaveError = Self.settingsErrorMessage(error)
+            return false
+        }
+
+        isSavingSettings = true
+        settingsSaveError = nil
+        defer { isSavingSettings = false }
+
+        var changedKeychain = false
+        do {
+            for (key, value) in secretUpdates where !value.isEmpty {
+                try secretStore.set(value, for: key)
+                changedKeychain = true
+            }
+            for key in secretRemovals where secretUpdates[key]?.isEmpty != false {
+                try secretStore.removeValue(for: key)
+                changedKeychain = true
+            }
+        } catch {
+            settingsSaveError = changedKeychain
+                ? "Some credentials were updated, but a later Keychain change failed. Retry Save or restore the previous credential."
+                : "A credential could not be saved to Keychain. Settings were not changed."
+            return false
+        }
+
+        do {
+            try settingsStore.save(validated)
+        } catch {
+            settingsSaveError = "Credentials were updated, but settings could not be saved. Retry Save or restore the previous credential."
+            return false
+        }
+
+        settings = validated
+        persistedSettingsExist = true
+        settingsLoadError = nil
+        refreshCoalescer.configurationDidChange()
+        rebuildConnectors()
+        configureAutomaticRefresh()
+        if liveConnectors.isEmpty {
+            snapshot = MockData.unknownSnapshot()
+            persistSnapshot()
+        }
+        await refresh()
+        return true
+    }
+
+    private func loadSettings() {
+        do {
+            if let loaded = try settingsStore.load() {
+                settings = loaded
+                persistedSettingsExist = true
+            }
+        } catch {
+            settingsLoadError = "Saved settings could not be loaded. Motas is using in-memory defaults."
+        }
+    }
+
+    private func rebuildConnectors() {
+        let resolved = ConnectorConfigurationResolver().resolve(
+            settings: settings,
+            persistedDocumentExists: persistedSettingsExist,
+            environment: environment,
+            secretStore: secretStore
+        )
+        sourceLabels = resolved.labels
+        liveConnectors = EnvironmentConnectorFactory.connectors(resolved: resolved)
+        isDemoMode = liveConnectors.isEmpty && !persistedSettingsExist
+
+        let messages = ([settingsLoadError].compactMap { $0 } + resolved.issues.map(\.message))
+        configurationError = messages.isEmpty ? nil : messages.joined(separator: " ")
+    }
+
+    private func configureAutomaticRefresh() {
+        automaticRefreshScheduler.stop()
+        guard settings.automaticRefreshEnabled, !liveConnectors.isEmpty else { return }
+
+        automaticRefreshScheduler.start(
+            interval: .seconds(Int(MotasConfiguration.defaultAutomaticRefreshInterval))
+        ) { [weak self] in
+            await self?.refresh()
+        }
     }
 
     private func persistSnapshot() {
@@ -97,6 +244,35 @@ final class AppModel: ObservableObject {
             lastRefreshError = nil
         } catch {
             lastRefreshError = error.localizedDescription
+        }
+    }
+
+    private static func defaultSettingsStore() -> any ConnectorSettingsStore {
+        let directory = FileManager.default.urls(
+            for: .applicationSupportDirectory,
+            in: .userDomainMask
+        )[0].appendingPathComponent("Motas", isDirectory: true)
+        return JSONConnectorSettingsStore(
+            fileURL: directory.appendingPathComponent(MotasConfiguration.settingsFilename)
+        )
+    }
+
+    private static func settingsErrorMessage(_ error: Error) -> String {
+        switch error {
+        case ConnectorSettingsValidationError.invalidScheme:
+            "Endpoints must use HTTP or HTTPS."
+        case ConnectorSettingsValidationError.missingHost:
+            "Endpoints must include a host."
+        case ConnectorSettingsValidationError.embeddedCredentials:
+            "Put credentials in Keychain fields, not endpoint URLs."
+        case ConnectorSettingsValidationError.unsupportedQueryOrFragment:
+            "Endpoint URLs cannot contain query strings or fragments."
+        case ConnectorSettingsValidationError.unsupportedPath:
+            "That endpoint path is not supported."
+        case ConnectorSettingsValidationError.invalidStatusFilePath:
+            "The Claude Code status file must be an absolute path."
+        default:
+            "Settings could not be validated."
         }
     }
 }

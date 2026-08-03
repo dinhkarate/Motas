@@ -155,7 +155,10 @@ public struct ConnectorConfigurationResolver: Sendable {
         let nineRouterSource: ConnectorConfigurationSource
 
         if let rawURL = maybeEnv("MOTAS_9ROUTER_URL") {
-            if let url = Self.absoluteHTTPURL(from: rawURL) {
+            if let url = Self.validatedEndpointURL(
+                rawURL,
+                label: "9Router environment endpoint"
+            ) {
                 nineRouterEnabled = true
                 nineRouterURL = url
                 nineRouterSource = .environment
@@ -202,7 +205,11 @@ public struct ConnectorConfigurationResolver: Sendable {
         let cliProxySource: ConnectorConfigurationSource
 
         if let rawURL = maybeEnv("MOTAS_CLIPROXYAPI_URL") {
-            if let url = Self.absoluteHTTPURL(from: rawURL) {
+            if let url = Self.validatedEndpointURL(
+                rawURL,
+                label: "CLIProxyAPI environment endpoint",
+                allowedSuffixes: ["/v1", "/v0/management"]
+            ) {
                 cliProxyEnabled = true
                 cliProxyURL = url
                 cliProxySource = .environment
@@ -264,14 +271,16 @@ public struct ConnectorConfigurationResolver: Sendable {
         )
     }
 
-    public static func absoluteHTTPURL(from value: String) -> URL? {
-        guard let url = URL(string: value),
-              let scheme = url.scheme?.lowercased(),
-              scheme == "http" || scheme == "https",
-              url.host?.isEmpty == false
-        else {
-            return nil
-        }
-        return url
+    public static func validatedEndpointURL(
+        _ value: String,
+        label: String,
+        allowedSuffixes: [String] = []
+    ) -> URL? {
+        guard let url = URL(string: value) else { return nil }
+        return try? ConnectorEndpointRule.validate(
+            baseURL: url,
+            label: label,
+            allowedSuffixes: allowedSuffixes
+        )
     }
 }

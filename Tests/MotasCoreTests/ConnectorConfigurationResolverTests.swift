@@ -107,6 +107,24 @@ func environmentSecretOverridesKeychain() {
     #expect(resolved.nineRouter?.dashboardToken == "env-key")
 }
 
+@Test("Environment secret override skips Keychain reads")
+func environmentSecretSkipsKeychain() {
+    let store = MemorySecretStore()
+    store.failReads = true
+    let resolved = makeResolver(
+        environment: [
+            "MOTAS_9ROUTER_DASHBOARD_TOKEN": "env-key",
+            "MOTAS_9ROUTER_CLI_TOKEN": "env-cli",
+        ],
+        settings: MotasSettings(nineRouter: NineRouterSettings(isEnabled: true)),
+        store: store
+    )
+
+    #expect(resolved.nineRouter?.dashboardToken == "env-key")
+    #expect(resolved.nineRouter?.cliToken == "env-cli")
+    #expect(resolved.issues.isEmpty)
+}
+
 @Test("Empty environment secret falls back to Keychain")
 func emptyEnvFallsBackToKeychain() {
     let store = MemorySecretStore()
@@ -134,6 +152,23 @@ func cliProxyPrimaryWithoutNineRouter() {
         environment: ["MOTAS_CLIPROXYAPI_URL": "http://localhost:8317"]
     )
     #expect(resolved.cliProxyAPI?.role == .primary)
+}
+
+@Test("Credential-bearing environment endpoints are rejected safely")
+func credentialEnvironmentURLsRejected() {
+    let persistedURL = URL(string: "http://saved:8317")!
+    let resolved = makeResolver(
+        environment: [
+            "MOTAS_CLIPROXYAPI_URL": "http://user:secret@localhost:8317?api_key=secret",
+        ],
+        settings: MotasSettings(
+            cliProxyAPI: CLIProxyAPISettings(isEnabled: true, baseURL: persistedURL)
+        )
+    )
+
+    #expect(resolved.cliProxyAPI?.baseURL == persistedURL)
+    #expect(resolved.issues.count == 1)
+    #expect(!resolved.issues[0].message.contains("secret"))
 }
 
 @Test("Disabled connectors do not query Keychain")

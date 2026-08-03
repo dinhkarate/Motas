@@ -16,7 +16,9 @@ Implemented:
 - SwiftUI `MenuBarExtra` prototype.
 - WidgetKit extension source using a shared snapshot.
 - Atomic JSON snapshot persistence.
-- Swift tests for readiness, connectors and snapshot privacy.
+- Persistent connector Settings with Keychain-backed proxy credentials.
+- Five-minute automatic refresh with manual refresh coalescing.
+- Swift tests for readiness, connectors, settings and snapshot privacy.
 
 Available connectors:
 
@@ -54,7 +56,7 @@ swift build --product MotasPrototype
 swift run MotasPrototype
 ```
 
-`swift run MotasPrototype` launches the menu bar prototype. Open Settings to switch between mock readiness scenarios.
+`swift run MotasPrototype` launches the menu bar prototype. On first launch with no configured connector it starts in demo mode; save Settings to configure real monitoring.
 
 To monitor Claude Code quota and local proxies instead of mock data:
 
@@ -84,7 +86,15 @@ MOTAS_CLIPROXYAPI_KEY
 MOTAS_CLIPROXYAPI_MANAGEMENT_KEY
 ```
 
-Environment variables are a prototype-only configuration surface. Production credentials will move to Keychain-backed Settings.
+Settings and Keychain are the normal configuration surface. Environment variables remain development overrides for the current process; they take precedence over saved values and are never imported into Keychain.
+
+Non-secret Settings live in:
+
+```text
+~/Library/Application Support/Motas/settings.json
+```
+
+Read [Settings, Keychain and refresh architecture](docs/architecture/settings-keychain-auto-refresh.md) for storage, precedence, and refresh behavior.
 
 ## Generate the Xcode project
 
@@ -109,6 +119,7 @@ The generated Xcode project is intentionally ignored because `project.yml` is th
 - [macOS surface architecture](docs/adr/001-macos-surface-architecture.md)
 - [Normalized status model](docs/architecture/normalized-status-model.md)
 - [Readiness rules](docs/architecture/readiness-rules.md)
+- [Settings, Keychain and refresh](docs/architecture/settings-keychain-auto-refresh.md)
 - [Claude Code connector](docs/connectors/claude-code.md)
 - [9Router connector research](docs/connectors/9router.md)
 - [CLIProxyAPI connector research](docs/connectors/cliproxyapi.md)

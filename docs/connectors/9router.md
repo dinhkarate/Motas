@@ -79,7 +79,8 @@ The connector must not infer green/fallback from configuration alone.
 ## Security notes
 
 - Prefer localhost endpoints.
-- A dashboard token is sensitive and must eventually live in Keychain.
+- Dashboard and CLI tokens are stored in the containing app's Keychain; the widget never receives them.
+- Environment tokens remain development-only process overrides and are never imported into Keychain.
 - The normalized snapshot contains only masked account labels and status.
 - Motas does not call mutation routes.
 - Motas does not start/stop/shutdown 9Router in v1.

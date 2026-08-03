@@ -51,6 +51,7 @@ public struct KeychainConnectorSecretStore: ConnectorSecretStore {
         if updateStatus == errSecItemNotFound {
             var addQuery = base
             addQuery[kSecValueData as String] = data
+            addQuery[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
             let addStatus = SecItemAdd(addQuery as CFDictionary, nil)
             guard addStatus == errSecSuccess else {
                 throw KeychainConnectorSecretStoreError.unexpected(addStatus)
@@ -93,7 +94,6 @@ public struct KeychainConnectorSecretStore: ConnectorSecretStore {
             kSecAttrService as String: MotasConfiguration.keychainService,
             kSecAttrAccount as String: key.rawValue,
             kSecAttrSynchronizable as String: false,
-            kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly,
         ]
     }
 }

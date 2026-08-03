@@ -17,6 +17,7 @@ public enum ConnectorSettingsValidationError: Error, Equatable {
     case embeddedCredentials(String)
     case unsupportedQueryOrFragment(String)
     case unsupportedPath(String)
+    case invalidStatusFilePath
 }
 
 /// Secret-free Claude Code settings.
@@ -108,6 +109,13 @@ public struct MotasSettings: Codable, Sendable, Equatable {
     /// connectors know how to normalize.
     public func validated() throws -> MotasSettings {
         var result = self
+        let expandedStatusPath = (claudeCode.statusFilePath as NSString).expandingTildeInPath
+        guard expandedStatusPath.hasPrefix("/") else {
+            throw ConnectorSettingsValidationError.invalidStatusFilePath
+        }
+        result.claudeCode.statusFilePath = URL(
+            fileURLWithPath: expandedStatusPath
+        ).standardizedFileURL.path
         result.nineRouter.baseURL = try ConnectorEndpointRule.validate(
             baseURL: nineRouter.baseURL,
             label: "9Router endpoint"
@@ -154,10 +162,10 @@ public enum ConnectorEndpointRule {
             path = ""
         }
         if !path.isEmpty {
-            guard let matched = allowedSuffixes.first(where: { path.hasSuffix($0) }) else {
+            guard allowedSuffixes.contains(path) else {
                 throw ConnectorSettingsValidationError.unsupportedPath(label)
             }
-            path = String(path.dropLast(matched.count))
+            path = ""
         }
 
         var components = URLComponents(url: baseURL, resolvingAgainstBaseURL: false)

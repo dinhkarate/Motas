@@ -277,7 +277,8 @@ Initial defaults:
 
 ```text
 Normal app refresh: 5 minutes
-Quota warning/active-session refresh: 1 minute when supported safely
+
+The current prototype uses the same five-minute interval for active sessions and quota warnings. Adaptive one-minute refresh is deferred until its connector cost and WidgetKit behavior can be validated safely.
 Provider stale threshold: 15 minutes
 Local proxy stale threshold: 5 minutes
 Widget display: show captured time and stale marker from snapshot

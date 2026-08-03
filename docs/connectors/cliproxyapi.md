@@ -99,7 +99,8 @@ Motas therefore reports account health and partial data instead of inventing per
 ## Security notes
 
 - Proxy API key and management key are distinct.
-- Both must eventually be stored in Keychain.
+- Both are stored in the containing app's Keychain; the widget never receives them.
+- Environment keys remain development-only process overrides and are never imported into Keychain.
 - Management API can mutate configuration; Motas v1 uses GET-only endpoints.
 - Remote management should remain disabled unless explicitly required.
 - Prefer localhost (`127.0.0.1:8317`).

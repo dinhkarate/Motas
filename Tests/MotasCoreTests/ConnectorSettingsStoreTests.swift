@@ -37,10 +37,11 @@ func settingsRoundTrip() throws {
         )
     )
 
+    let expected = try settings.validated()
     try store.save(settings)
     let loaded = try store.load()
 
-    #expect(loaded == settings)
+    #expect(loaded == expected)
 }
 
 @Test("Defaults are decodable and reflection-free of secrets")
@@ -149,15 +150,38 @@ func endpointsInvalidRejected() throws {
     }
 }
 
-@Test("Nonexistent Claude status file can still be saved")
-func nonexistentClaudeFileCanBeSaved() throws {
+@Test("Claude status file path is normalized before persistence")
+func claudeStatusPathNormalized() throws {
     let store = try temporaryStore()
     let settings = MotasSettings(
         claudeCode: ClaudeCodeSettings(
             isEnabled: true,
-            statusFilePath: "/tmp/nonexistent/dir/claude-status.json"
+            statusFilePath: "~/Library/Application Support/Motas/../Motas/claude-status.json"
         )
     )
-    try store.save(settings)
-    #expect(try store.load() == settings)
+    let validated = try settings.validated()
+    try store.save(validated)
+
+    #expect(validated.claudeCode.statusFilePath.hasPrefix("/"))
+    #expect(!validated.claudeCode.statusFilePath.contains(".."))
+    #expect(try store.load() == validated)
+}
+
+@Test("Relative Claude status file and arbitrary proxy paths are rejected")
+func invalidFileAndEndpointPathsRejected() throws {
+    let relativeFile = MotasSettings(
+        claudeCode: ClaudeCodeSettings(isEnabled: true, statusFilePath: "relative/status.json")
+    )
+    #expect(throws: ConnectorSettingsValidationError.invalidStatusFilePath) {
+        _ = try relativeFile.validated()
+    }
+
+    let arbitraryCLIPath = MotasSettings(
+        cliProxyAPI: CLIProxyAPISettings(
+            baseURL: URL(string: "http://localhost:8317/anything/v1")!
+        )
+    )
+    #expect(throws: ConnectorSettingsValidationError.unsupportedPath("CLIProxyAPI endpoint")) {
+        _ = try arbitraryCLIPath.validated()
+    }
 }
