@@ -1,0 +1,78 @@
+#!/usr/bin/env python3
+"""Capture non-secret Claude Code rate-limit fields for Motas.
+
+Claude Code sends its status-line JSON to stdin. This script stores only the
+5-hour and 7-day usage percentages/reset timestamps, then prints no status-line
+text so it can be chained or replaced without exposing credentials.
+"""
+
+import json
+import os
+import sys
+import tempfile
+from datetime import datetime, timezone
+from pathlib import Path
+
+
+def main() -> int:
+    try:
+        payload = json.load(sys.stdin)
+    except (json.JSONDecodeError, OSError):
+        return 0
+
+    rate_limits = payload.get("rate_limits")
+    if not isinstance(rate_limits, dict):
+        return 0
+
+    filtered = {}
+    for source_name in ("five_hour", "seven_day"):
+        source = rate_limits.get(source_name)
+        if not isinstance(source, dict):
+            continue
+
+        window = {}
+        used_percentage = source.get("used_percentage")
+        resets_at = source.get("resets_at")
+        if isinstance(used_percentage, (int, float)) and not isinstance(used_percentage, bool):
+            window["used_percentage"] = max(0, min(float(used_percentage), 100))
+        if isinstance(resets_at, (int, float)) and not isinstance(resets_at, bool):
+            window["resets_at"] = float(resets_at)
+        if window:
+            filtered[source_name] = window
+
+    if not filtered:
+        return 0
+
+    destination = Path(
+        os.environ.get(
+            "MOTAS_CLAUDE_STATUS_FILE",
+            "~/Library/Application Support/Motas/claude-code-status.json",
+        )
+    ).expanduser()
+    destination.parent.mkdir(parents=True, exist_ok=True)
+
+    snapshot = {
+        "captured_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+        "rate_limits": filtered,
+    }
+
+    file_descriptor, temporary_path = tempfile.mkstemp(
+        prefix=f".{destination.name}.",
+        dir=destination.parent,
+        text=True,
+    )
+    try:
+        with os.fdopen(file_descriptor, "w", encoding="utf-8") as temporary_file:
+            json.dump(snapshot, temporary_file, separators=(",", ":"))
+            temporary_file.write("\n")
+        os.chmod(temporary_path, 0o600)
+        os.replace(temporary_path, destination)
+    finally:
+        if os.path.exists(temporary_path):
+            os.unlink(temporary_path)
+
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

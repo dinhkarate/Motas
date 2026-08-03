@@ -224,15 +224,23 @@ private extension ReadinessEngine {
     }
 
     func isKnownFailed(_ provider: ProviderStatus) -> Bool {
-        provider.health == .exhausted
-            || provider.health == .unreachable
-            || hasExhaustedEnforcedWindow(provider.quotaWindows)
+        provider.health == .unreachable
+            || (hasCurrentData(provider.observation) && (
+                provider.health == .exhausted
+                    || hasExhaustedEnforcedWindow(provider.quotaWindows)
+            ))
     }
 
     func isKnownFailed(_ proxy: ProxyStatus) -> Bool {
-        proxy.health == .exhausted
-            || proxy.health == .unreachable
-            || hasExhaustedEnforcedWindow(proxy.quotaWindows)
+        proxy.health == .unreachable
+            || (hasCurrentData(proxy.observation) && (
+                proxy.health == .exhausted
+                    || hasExhaustedEnforcedWindow(proxy.quotaWindows)
+            ))
+    }
+
+    func hasCurrentData(_ observation: Observation) -> Bool {
+        observation.quality == .fresh || observation.quality == .partial
     }
 
     func hasExhaustedEnforcedWindow(_ windows: [QuotaWindow]) -> Bool {

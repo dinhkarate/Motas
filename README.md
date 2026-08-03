@@ -10,7 +10,7 @@ Implemented:
 
 - Normalized provider/proxy/quota models.
 - Conservative readiness engine.
-- Mock Claude Code data.
+- Read-only Claude Code quota connector using the official status-line data contract.
 - Basic read-only 9Router health/account connector.
 - Basic read-only CLIProxyAPI health/account connector.
 - SwiftUI `MenuBarExtra` prototype.
@@ -18,11 +18,14 @@ Implemented:
 - Atomic JSON snapshot persistence.
 - Swift tests for readiness, connectors and snapshot privacy.
 
-Planned connectors:
+Available connectors:
 
 - Claude Code
 - 9Router
 - CLIProxyAPI
+
+Planned connectors:
+
 - OpenRouter (optional MVP)
 - ProxyPal (post-MVP)
 
@@ -53,17 +56,28 @@ swift run MotasPrototype
 
 `swift run MotasPrototype` launches the menu bar prototype. Open Settings to switch between mock readiness scenarios.
 
-To monitor local proxies instead of mock data:
+To monitor Claude Code quota and local proxies instead of mock data:
 
 ```bash
+chmod +x scripts/motas-claude-statusline
+```
+
+Configure Claude Code to run that script as its `statusLine` command, then launch:
+
+```bash
+MOTAS_CLAUDE_CODE_ENABLED=1 \
 MOTAS_9ROUTER_URL=http://localhost:20128 \
 MOTAS_CLIPROXYAPI_URL=http://localhost:8317 \
 swift run MotasPrototype
 ```
 
-Optional monitoring credentials:
+See [Claude Code connector setup](docs/connectors/claude-code.md) for the status-line configuration and privacy boundary.
+
+Optional monitoring configuration:
 
 ```text
+MOTAS_CLAUDE_CODE_ENABLED
+MOTAS_CLAUDE_STATUS_FILE
 MOTAS_9ROUTER_DASHBOARD_TOKEN
 MOTAS_9ROUTER_CLI_TOKEN
 MOTAS_CLIPROXYAPI_KEY
@@ -95,6 +109,7 @@ The generated Xcode project is intentionally ignored because `project.yml` is th
 - [macOS surface architecture](docs/adr/001-macos-surface-architecture.md)
 - [Normalized status model](docs/architecture/normalized-status-model.md)
 - [Readiness rules](docs/architecture/readiness-rules.md)
+- [Claude Code connector](docs/connectors/claude-code.md)
 - [9Router connector research](docs/connectors/9router.md)
 - [CLIProxyAPI connector research](docs/connectors/cliproxyapi.md)
 - [MVP user stories](docs/product/mvp-user-stories.md)

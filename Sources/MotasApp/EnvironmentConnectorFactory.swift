@@ -7,6 +7,20 @@ enum EnvironmentConnectorFactory {
     ) -> [any StatusConnector] {
         var connectors: [any StatusConnector] = []
 
+        if environment["MOTAS_CLAUDE_CODE_ENABLED"] == "1" {
+            let defaultPath = NSString(
+                string: "~/Library/Application Support/Motas/claude-code-status.json"
+            ).expandingTildeInPath
+            let statusPath = environment["MOTAS_CLAUDE_STATUS_FILE"] ?? defaultPath
+            connectors.append(
+                ClaudeCodeConnector(
+                    configuration: ClaudeCodeConfiguration(
+                        statusFileURL: URL(fileURLWithPath: statusPath)
+                    )
+                )
+            )
+        }
+
         if let rawURL = environment["MOTAS_9ROUTER_URL"],
            let url = URL(string: rawURL)
         {
@@ -26,12 +40,13 @@ enum EnvironmentConnectorFactory {
         if let rawURL = environment["MOTAS_CLIPROXYAPI_URL"],
            let url = URL(string: rawURL)
         {
+            let hasPrimaryProxy = environment["MOTAS_9ROUTER_URL"] != nil
             connectors.append(
                 CLIProxyAPIConnector(
                     configuration: CLIProxyAPIConfiguration(
                         baseURL: url,
-                        role: connectors.isEmpty ? .primary : .fallback,
-                        isRequiredRoute: connectors.isEmpty,
+                        role: hasPrimaryProxy ? .fallback : .primary,
+                        isRequiredRoute: !hasPrimaryProxy,
                         proxyAPIKey: environment["MOTAS_CLIPROXYAPI_KEY"],
                         managementKey: environment["MOTAS_CLIPROXYAPI_MANAGEMENT_KEY"]
                     )
