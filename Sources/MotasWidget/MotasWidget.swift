@@ -45,9 +45,15 @@ struct MotasWidgetView: View {
                 Label("Motas", systemImage: entry.snapshot.readiness.state.symbolName)
                     .font(.headline)
                 Spacer()
-                Text(entry.snapshot.capturedAt, style: .time)
+                Text(entry.snapshot.capturedAt, style: .relative)
                     .font(.caption2)
                     .foregroundStyle(.secondary)
+            }
+
+            if Date().timeIntervalSince(entry.snapshot.capturedAt) > 30 * 60 {
+                Label("Status may be stale", systemImage: "clock.badge.exclamationmark")
+                    .font(.caption2)
+                    .foregroundStyle(.orange)
             }
 
             Text(entry.snapshot.readiness.title)
@@ -83,11 +89,7 @@ struct MotasWidgetView: View {
             WidgetRow(
                 id: "provider-\(provider.id)",
                 name: provider.name,
-                detail: provider.quotaWindows
-                    .compactMap(\.remainingFraction)
-                    .min()
-                    .map { "\(Int(($0 * 100).rounded()))% left" }
-                    ?? provider.health.rawValue.capitalized,
+                detail: providerDetail(provider),
                 color: provider.health.color
             )
         }
@@ -101,6 +103,25 @@ struct MotasWidgetView: View {
             )
         }
         return providers + proxies
+    }
+
+    private func providerDetail(_ provider: ProviderStatus) -> String {
+        guard let window = provider.quotaWindows
+            .filter(\.isEnforced)
+            .compactMap({ window -> (QuotaWindow, Double)? in
+                guard let remaining = window.remainingFraction else { return nil }
+                return (window, remaining)
+            })
+            .min(by: { $0.1 < $1.1 })
+        else {
+            return provider.health.rawValue.capitalized
+        }
+
+        let percentage = "\(Int((window.1 * 100).rounded()))% left"
+        guard let reset = StatusPresentation.resetLabel(for: window.0.resetsAt, now: Date()) else {
+            return percentage
+        }
+        return "\(percentage) · \(reset)"
     }
 }
 

@@ -124,6 +124,7 @@ The generated Xcode project is intentionally ignored because `project.yml` is th
 - [Readiness notifications](docs/architecture/notifications.md)
 - [Bounded status history](docs/architecture/status-history.md)
 - [Sanitized diagnostics](docs/architecture/diagnostics.md)
+- [Truthful status presentation](docs/architecture/status-presentation.md)
 - [Claude Code connector](docs/connectors/claude-code.md)
 - [9Router connector research](docs/connectors/9router.md)
 - [CLIProxyAPI connector research](docs/connectors/cliproxyapi.md)

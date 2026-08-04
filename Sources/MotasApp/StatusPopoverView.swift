@@ -11,7 +11,7 @@ struct StatusPopoverView: View {
             if !model.snapshot.providers.isEmpty {
                 section("Providers") {
                     ForEach(model.snapshot.providers) { provider in
-                        ProviderRow(provider: provider)
+                        ProviderRow(provider: provider, now: Date())
                     }
                 }
             }
@@ -28,7 +28,7 @@ struct StatusPopoverView: View {
 
             HStack {
                 Label(
-                    model.snapshot.capturedAt.formatted(date: .omitted, time: .shortened),
+                    "Updated \(StatusPresentation.relativeAge(of: model.snapshot.capturedAt, now: Date()))",
                     systemImage: "clock"
                 )
                 .font(.caption)
@@ -95,6 +95,7 @@ struct StatusPopoverView: View {
 
 private struct ProviderRow: View {
     let provider: ProviderStatus
+    let now: Date
 
     var body: some View {
         HStack(spacing: 10) {
@@ -109,13 +110,28 @@ private struct ProviderRow: View {
                     })
                     .min(by: { $0.1 < $1.1 })
                 {
-                    Text("\(Int((window.1 * 100).rounded()))% left · \(window.0.name)")
+                    Text(quotaDetail(window: window.0, remaining: window.1))
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 } else {
-                    Text(provider.observation.quality.displayName)
+                    Text(StatusPresentation.qualityLabel(provider.observation.quality))
                         .font(.caption)
                         .foregroundStyle(.secondary)
+                }
+                if let message = provider.observation.message {
+                    Text(message)
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                if let remediation = StatusPresentation.remediation(
+                    health: provider.health,
+                    quality: provider.observation.quality
+                ) {
+                    Text(remediation)
+                        .font(.caption2)
+                        .foregroundStyle(.orange)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
             }
             Spacer()
@@ -124,6 +140,16 @@ private struct ProviderRow: View {
                 .foregroundStyle(.secondary)
         }
         .padding(.vertical, 2)
+    }
+
+    private func quotaDetail(window: QuotaWindow, remaining: Double) -> String {
+        let quality = StatusPresentation.qualityLabel(provider.observation.quality)
+        let qualityPrefix = provider.observation.quality == .fresh ? "" : "\(quality) · "
+        let percentage = "\(qualityPrefix)\(Int((remaining * 100).rounded()))% left · \(window.name)"
+        guard let reset = StatusPresentation.resetLabel(for: window.resetsAt, now: now) else {
+            return percentage
+        }
+        return "\(percentage) · \(reset)"
     }
 }
 
@@ -138,6 +164,21 @@ private struct ProxyRow: View {
                 Text(detail)
                     .font(.caption)
                     .foregroundStyle(.secondary)
+                if let message = proxy.observation.message {
+                    Text(message)
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                if let remediation = StatusPresentation.remediation(
+                    health: proxy.health,
+                    quality: proxy.observation.quality
+                ) {
+                    Text(remediation)
+                        .font(.caption2)
+                        .foregroundStyle(.orange)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
             }
             Spacer()
             Text(proxy.health.displayName)
