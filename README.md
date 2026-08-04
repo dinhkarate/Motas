@@ -18,7 +18,8 @@ Implemented:
 - Atomic JSON snapshot persistence.
 - Persistent connector Settings with Keychain-backed proxy credentials.
 - Five-minute automatic refresh with manual refresh coalescing.
-- Swift tests for readiness, connectors, settings and snapshot privacy.
+- Pure readiness notification transition engine with cooldown/deduplication.
+- Swift tests for readiness, connectors, settings, notifications and snapshot privacy.
 
 Available connectors:
 
@@ -120,6 +121,7 @@ The generated Xcode project is intentionally ignored because `project.yml` is th
 - [Normalized status model](docs/architecture/normalized-status-model.md)
 - [Readiness rules](docs/architecture/readiness-rules.md)
 - [Settings, Keychain and refresh](docs/architecture/settings-keychain-auto-refresh.md)
+- [Readiness notifications](docs/architecture/notifications.md)
 - [Claude Code connector](docs/connectors/claude-code.md)
 - [9Router connector research](docs/connectors/9router.md)
 - [CLIProxyAPI connector research](docs/connectors/cliproxyapi.md)
