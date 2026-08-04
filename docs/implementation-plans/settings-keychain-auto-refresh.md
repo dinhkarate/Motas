@@ -1,14 +1,22 @@
 # Implementation Plan: Settings, Keychain and Automatic Refresh
 
-Status: ready for implementation
+Status: implemented
 
 Plan branch: `plan/settings-keychain-auto-refresh` (documentation only)
 
-Implementation branch: `feat/settings-keychain-auto-refresh`
+Implementation branch: `feat-deepseek/settings`
 
-Intended implementer: DeepSeek or another coding agent
+Implemented by: DeepSeek implementation workflow
 
 Baseline commit: `7c68044` (`feat(connectors): add Claude Code quota monitoring`)
+
+Implementation commits:
+
+- `d8949e0` — persistent connector configuration model;
+- `ce72b90` — Keychain adapter and effective configuration resolver;
+- `d5b1117` — Settings UI, refresh scheduler and refresh coalescing.
+
+Verified through Apple Command Line Tools. Signed Keychain identity and WidgetKit/App Group behavior remain deferred until full Xcode verification.
 
 ## 1. Goal
 

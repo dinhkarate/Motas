@@ -127,6 +127,7 @@ The generated Xcode project is intentionally ignored because `project.yml` is th
 - [CLIProxyAPI connector research](docs/connectors/cliproxyapi.md)
 - [MVP user stories](docs/product/mvp-user-stories.md)
 - [Frozen v1 scope](docs/product/v1-scope.md)
+- [MVP completion roadmap](docs/implementation-plans/mvp-completion-roadmap.md)
 
 ## Verification status
 
