@@ -36,8 +36,11 @@ final class AppModel: ObservableObject {
     private let settingsStore: any ConnectorSettingsStore
     private let secretStore: any ConnectorSecretStore
     private let environment: [String: String]
+    private let historyStore: any StatusHistoryStore
+    private var history: StatusHistory
     private var persistedSettingsExist = false
     private var settingsLoadError: String?
+    private var historyLoadError: String?
     private var refreshCoalescer = RefreshCoalescer()
     private let automaticRefreshScheduler = AutomaticRefreshScheduler()
     private let scenarios: [(Date) -> StatusSnapshot] = [
@@ -50,11 +53,14 @@ final class AppModel: ObservableObject {
     init(
         settingsStore: (any ConnectorSettingsStore)? = nil,
         secretStore: any ConnectorSecretStore = KeychainConnectorSecretStore(),
-        environment: [String: String] = ProcessInfo.processInfo.environment
+        environment: [String: String] = ProcessInfo.processInfo.environment,
+        historyStore: (any StatusHistoryStore)? = nil
     ) {
         self.settingsStore = settingsStore ?? Self.defaultSettingsStore()
         self.secretStore = secretStore
         self.environment = environment
+        self.historyStore = historyStore ?? Self.defaultHistoryStore()
+        self.history = .init()
         settings = .default()
         snapshot = MockData.unknownSnapshot()
         sourceLabels = ConnectorSourceLabels(
@@ -64,6 +70,7 @@ final class AppModel: ObservableObject {
         )
 
         loadSettings()
+        loadHistory()
         rebuildConnectors()
         snapshot = isDemoMode ? MockData.readySnapshot() : MockData.unknownSnapshot()
         persistSnapshot()
@@ -99,6 +106,9 @@ final class AppModel: ObservableObject {
             if refreshCoalescer.shouldApplyResult(capturedAt: revision) {
                 snapshot = nextSnapshot
                 persistSnapshot()
+                if !demoMode {
+                    appendHistory(snapshot: nextSnapshot)
+                }
             }
 
             guard refreshCoalescer.finish(), let nextRevision = refreshCoalescer.begin() else {
@@ -183,6 +193,27 @@ final class AppModel: ObservableObject {
         return true
     }
 
+    private func loadHistory() {
+        do {
+            history = try historyStore.load()
+        } catch {
+            history = .init()
+            historyLoadError = "Saved status history could not be loaded. Motas will rebuild it during refresh."
+        }
+    }
+
+    private func appendHistory(snapshot: StatusSnapshot) {
+        let next = history.appending(snapshot: snapshot, at: snapshot.capturedAt)
+        guard next != history else { return }
+        history = next
+        do {
+            try historyStore.save(history)
+            historyLoadError = nil
+        } catch {
+            lastRefreshError = "Status history could not be saved. Live readiness remains available."
+        }
+    }
+
     private func loadSettings() {
         do {
             if let loaded = try settingsStore.load() {
@@ -205,7 +236,7 @@ final class AppModel: ObservableObject {
         liveConnectors = EnvironmentConnectorFactory.connectors(resolved: resolved)
         isDemoMode = liveConnectors.isEmpty && !persistedSettingsExist
 
-        let messages = ([settingsLoadError].compactMap { $0 } + resolved.issues.map(\.message))
+        let messages = ([settingsLoadError, historyLoadError].compactMap { $0 } + resolved.issues.map(\.message))
         configurationError = messages.isEmpty ? nil : messages.joined(separator: " ")
     }
 
@@ -254,6 +285,16 @@ final class AppModel: ObservableObject {
         )[0].appendingPathComponent("Motas", isDirectory: true)
         return JSONConnectorSettingsStore(
             fileURL: directory.appendingPathComponent(MotasConfiguration.settingsFilename)
+        )
+    }
+
+    private static func defaultHistoryStore() -> any StatusHistoryStore {
+        let directory = FileManager.default.urls(
+            for: .applicationSupportDirectory,
+            in: .userDomainMask
+        )[0].appendingPathComponent("Motas", isDirectory: true)
+        return JSONStatusHistoryStore(
+            fileURL: directory.appendingPathComponent("history.json")
         )
     }
 
