@@ -212,6 +212,35 @@ func cliProxyAuthFiles() async throws {
     #expect(requests[1].value(forHTTPHeaderField: "Authorization") == "Bearer management-key")
 }
 
+@Test("CLIProxyAPI anonymous accounts receive stable deterministic IDs")
+func cliProxyAnonymousAccountIDs() async {
+    let payload: [String: Any] = [
+        "files": [
+            ["provider": "claude", "status": "active"],
+            ["provider": "claude", "status": "active"],
+        ],
+    ]
+    let transport = QueueTransport([
+        .success(jsonResponse(["data": [["id": "model"]]])),
+        .success(jsonResponse(payload)),
+    ])
+    let connector = CLIProxyAPIConnector(
+        configuration: CLIProxyAPIConfiguration(
+            baseURL: URL(string: "http://localhost:8317")!,
+            managementKey: "management-key"
+        ),
+        transport: transport,
+        now: { connectorDate }
+    )
+
+    guard case .proxy(let status) = await connector.refresh() else {
+        Issue.record("Expected proxy result")
+        return
+    }
+
+    #expect(status.accounts.map(\.id) == ["anonymous-0-claude", "anonymous-1-claude"])
+}
+
 @Test("CLIProxyAPI rejected proxy key is unauthorized, not unreachable")
 func cliProxyUnauthorized() async {
     let transport = QueueTransport([.success(jsonResponse(["error": "unauthorized"], status: 401))])

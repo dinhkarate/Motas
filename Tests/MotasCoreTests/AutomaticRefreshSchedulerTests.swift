@@ -94,6 +94,23 @@ func schedulerReleasesOneTick() async {
 
 @Test
 @MainActor
+func schedulerDefaultIntervalUsesPolicy() async {
+    let gate = SleepGate()
+    let counter = RefreshCounter()
+    let scheduler = AutomaticRefreshScheduler(
+        policy: AutomaticRefreshPolicy(interval: .seconds(300)),
+        sleep: gate.makeSleep()
+    )
+    scheduler.start { await counter.tick() }
+
+    await waitForSleepRegistration(gate)
+    #expect(gate.firstInterval == .seconds(300))
+    scheduler.stop()
+    gate.releaseAll()
+}
+
+@Test
+@MainActor
 func schedulerClampsShortInterval() async {
     let gate = SleepGate()
     let counter = RefreshCounter()
@@ -124,6 +141,59 @@ func schedulerStopsPermanently() async {
     try? await Task.sleep(for: .milliseconds(20))
     #expect(await counter.count == 0)
 
+    gate.releaseAll()
+}
+
+@Test
+@MainActor
+func schedulerSchedulesNextSleepAfterOperation() async {
+    let gate = SleepGate()
+    let counter = RefreshCounter()
+    let scheduler = AutomaticRefreshScheduler(sleep: gate.makeSleep())
+    scheduler.start(interval: .seconds(60)) { await counter.tick() }
+
+    await waitForSleepRegistration(gate)
+    gate.release()
+    for _ in 0..<100 where gate.waiterCount == 0 {
+        await Task.yield()
+    }
+    #expect(await counter.count == 1)
+    #expect(gate.waiterCount == 1)
+
     scheduler.stop()
     gate.releaseAll()
+}
+
+@Test
+@MainActor
+func schedulerRestartReplacesOperationLoop() async {
+    let gate = SleepGate()
+    let firstCounter = RefreshCounter()
+    let secondCounter = RefreshCounter()
+    let scheduler = AutomaticRefreshScheduler(sleep: gate.makeSleep())
+
+    scheduler.start(interval: .seconds(60)) { await firstCounter.tick() }
+    await waitForSleepRegistration(gate)
+    scheduler.start(interval: .seconds(60)) { await secondCounter.tick() }
+    gate.releaseAll()
+    try? await Task.sleep(for: .milliseconds(20))
+
+    #expect(await firstCounter.count == 0)
+    #expect(await secondCounter.count == 0)
+    scheduler.stop()
+    gate.releaseAll()
+}
+
+@Test
+@MainActor
+func schedulerCancellationDuringDefaultSleepExits() async {
+    let counter = RefreshCounter()
+    let scheduler = AutomaticRefreshScheduler(sleep: { _ in
+        try await Task.sleep(for: .seconds(3600))
+    })
+    scheduler.start(interval: .seconds(60)) { await counter.tick() }
+    scheduler.stop()
+    try? await Task.sleep(for: .milliseconds(20))
+
+    #expect(await counter.count == 0)
 }

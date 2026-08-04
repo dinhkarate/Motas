@@ -147,7 +147,9 @@ private extension CLIProxyAPIConnector {
                 let decoder = JSONDecoder()
                 decoder.dateDecodingStrategy = .iso8601
                 let payload = try decoder.decode(AuthFilesResponse.self, from: response.body)
-                let accounts = payload.files.map(account(from:)).sorted { $0.id < $1.id }
+                let accounts = payload.files.enumerated()
+                    .map { index, file in account(from: file, position: index) }
+                    .sorted { $0.id < $1.id }
                 let usable = accounts.filter { $0.health == .healthy }.count
                 let health: OperationalHealth = accounts.isEmpty || usable == 0 ? .degraded : .healthy
                 return status(
@@ -216,7 +218,7 @@ private extension CLIProxyAPIConnector {
         return request
     }
 
-    func account(from file: AuthFile) -> ProxyAccountStatus {
+    func account(from file: AuthFile, position: Int) -> ProxyAccountStatus {
         let status = file.status?.lowercased()
         let health: OperationalHealth
         if file.disabled == true {
@@ -234,7 +236,7 @@ private extension CLIProxyAPIConnector {
         let stableID = file.authIndex?.nonEmpty
             ?? file.id?.nonEmpty
             ?? file.name?.nonEmpty
-            ?? UUID().uuidString
+            ?? anonymousAccountID(for: file, position: position)
         let label = file.label?.nonEmpty
             ?? maskEmail(file.email)
             ?? file.name?.nonEmpty
@@ -280,6 +282,11 @@ private extension CLIProxyAPIConnector {
             accounts: accounts,
             endpointLabel: EndpointNormalizer.redactedLabel(for: configuration.baseURL)
         )
+    }
+
+    func anonymousAccountID(for file: AuthFile, position: Int) -> String {
+        let provider = file.provider?.nonEmpty ?? file.type?.nonEmpty ?? "unknown"
+        return "anonymous-\(position)-\(provider.lowercased())"
     }
 
     func maskEmail(_ email: String?) -> String? {
