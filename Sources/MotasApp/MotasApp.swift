@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit
 import MotasCore
 
 @main
@@ -30,6 +31,7 @@ final class AppModel: ObservableObject {
     @Published private(set) var isSavingSettings = false
     @Published private(set) var isDemoMode = false
     @Published private(set) var sourceLabels: ConnectorSourceLabels
+    @Published private(set) var diagnosticsError: String?
 
     private var scenarioIndex = 0
     private var liveConnectors: [any StatusConnector] = []
@@ -191,6 +193,88 @@ final class AppModel: ObservableObject {
         }
         await refresh()
         return true
+    }
+
+    func diagnosticData(format: DiagnosticExportFormat) -> Data? {
+        do {
+            let configurations = [
+                DiagnosticConnectorConfiguration(
+                    id: "claude-code",
+                    enabled: settings.claudeCode.isEnabled,
+                    statusFileConfigured: !settings.claudeCode.statusFilePath.isEmpty,
+                    enabledSource: sourceLabels.claudeCodeEnabled.rawValue
+                ),
+                DiagnosticConnectorConfiguration(
+                    id: "9router",
+                    enabled: settings.nineRouter.isEnabled,
+                    endpointLabel: EndpointNormalizer.redactedLabel(for: settings.nineRouter.baseURL),
+                    enabledSource: sourceLabels.nineRouterEnabled.rawValue
+                ),
+                DiagnosticConnectorConfiguration(
+                    id: "cliproxyapi",
+                    enabled: settings.cliProxyAPI.isEnabled,
+                    endpointLabel: EndpointNormalizer.redactedLabel(for: settings.cliProxyAPI.baseURL),
+                    enabledSource: sourceLabels.cliProxyAPIEnabled.rawValue
+                ),
+            ]
+            let issues = [configurationError, settingsSaveError, lastRefreshError]
+                .compactMap { $0 }
+            let input = DiagnosticReportInput(
+                generatedAt: Date(),
+                appVersion: Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String
+                    ?? "development",
+                snapshot: snapshot,
+                history: history,
+                configurations: configurations,
+                issues: issues
+            )
+            let report = DiagnosticReportBuilder().build(input)
+            diagnosticsError = nil
+            return try DiagnosticReportBuilder().export(report, format: format)
+        } catch {
+            diagnosticsError = "Diagnostics could not be generated."
+            return nil
+        }
+    }
+
+    @discardableResult
+    func resetMotasData() -> Bool {
+        var failed = false
+        do { try settingsStore.delete() } catch { failed = true }
+        do { try historyStore.delete() } catch { failed = true }
+        for key in ConnectorSecretKey.allCases {
+            do { try secretStore.removeValue(for: key) } catch { failed = true }
+        }
+
+        let fallbackDirectory = FileManager.default.urls(
+            for: .applicationSupportDirectory,
+            in: .userDomainMask
+        )[0].appendingPathComponent("Motas", isDirectory: true)
+        let fallbackSnapshot = fallbackDirectory.appendingPathComponent(
+            MotasConfiguration.snapshotFilename
+        )
+        try? FileManager.default.removeItem(at: fallbackSnapshot)
+        if let appGroupStore = try? SnapshotStore(
+            appGroupIdentifier: MotasConfiguration.appGroupIdentifier
+        ) {
+            try? FileManager.default.removeItem(at: appGroupStore.fileURL)
+        }
+
+        automaticRefreshScheduler.stop()
+        settings = .default()
+        history = .init()
+        persistedSettingsExist = false
+        settingsLoadError = nil
+        historyLoadError = nil
+        settingsSaveError = nil
+        diagnosticsError = failed ? "Some Motas data could not be removed." : nil
+        refreshCoalescer = .init()
+        rebuildConnectors()
+        isDemoMode = liveConnectors.isEmpty
+        snapshot = isDemoMode ? MockData.readySnapshot() : MockData.unknownSnapshot()
+        configureAutomaticRefresh()
+        persistSnapshot()
+        return !failed
     }
 
     private func loadHistory() {

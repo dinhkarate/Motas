@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit
 import MotasCore
 
 struct SettingsView: View {
@@ -12,6 +13,8 @@ struct SettingsView: View {
     @State private var proxyAPIKey = ""
     @State private var managementKey = ""
     @State private var secretRemovals: Set<ConnectorSecretKey> = []
+    @State private var showResetConfirmation = false
+    @State private var diagnosticsMessage: String?
 
     init(model: AppModel) {
         self.model = model
@@ -47,6 +50,8 @@ struct SettingsView: View {
                 }
             }
 
+            diagnosticsSection
+
             HStack {
                 Spacer()
                 Button("Save Settings") {
@@ -61,6 +66,66 @@ struct SettingsView: View {
         .frame(width: 580, height: 680)
         .onChange(of: model.settings) { _, settings in
             syncDraft(from: settings)
+        }
+        .alert("Reset Motas data?", isPresented: $showResetConfirmation) {
+            Button("Cancel", role: .cancel) {}
+            Button("Reset", role: .destructive) {
+                if model.resetMotasData() {
+                    diagnosticsMessage = "Motas data was reset. Claude Code cache was left untouched."
+                } else {
+                    diagnosticsMessage = "Some Motas data could not be reset."
+                }
+            }
+        } message: {
+            Text("This removes Motas settings, history, snapshots and stored proxy credentials. It does not remove Claude Code files.")
+        }
+    }
+
+    private var diagnosticsSection: some View {
+        Section("Diagnostics") {
+            HStack {
+                Button("Copy report") {
+                    guard let data = model.diagnosticData(format: .markdown),
+                          let text = String(data: data, encoding: .utf8)
+                    else { return }
+                    NSPasteboard.general.clearContents()
+                    NSPasteboard.general.setString(text, forType: .string)
+                    diagnosticsMessage = "Sanitized diagnostics copied."
+                }
+                Button("Save JSON…") {
+                    saveDiagnosticsJSON()
+                }
+                Button("Reset Motas data…", role: .destructive) {
+                    showResetConfirmation = true
+                }
+            }
+            if let diagnosticsMessage {
+                Text(diagnosticsMessage)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            if let diagnosticsError = model.diagnosticsError {
+                Text(diagnosticsError)
+                    .font(.caption)
+                    .foregroundStyle(.red)
+            }
+            Text("Reports include normalized status and bounded history only; credentials and raw connector responses are excluded.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    private func saveDiagnosticsJSON() {
+        guard let data = model.diagnosticData(format: .json) else { return }
+        let panel = NSSavePanel()
+        panel.nameFieldStringValue = "motas-diagnostics.json"
+        panel.allowedContentTypes = [.json]
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        do {
+            try data.write(to: url, options: [.atomic])
+            diagnosticsMessage = "Sanitized diagnostics saved."
+        } catch {
+            diagnosticsMessage = "Diagnostics could not be saved."
         }
     }
 

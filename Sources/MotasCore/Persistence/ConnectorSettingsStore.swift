@@ -11,6 +11,7 @@ public enum ConnectorSettingsStoreError: Error, Equatable {
 public protocol ConnectorSettingsStore: Sendable {
     func load() throws -> MotasSettings?
     func save(_ settings: MotasSettings) throws
+    func delete() throws
 }
 
 /// Atomic JSON-backed settings store.
@@ -61,6 +62,15 @@ public struct JSONConnectorSettingsStore: ConnectorSettingsStore {
         let data = try encoder.encode(settings.validated())
         try data.write(to: fileURL, options: [.atomic])
     }
+
+    public func delete() throws {
+        guard FileManager.default.fileExists(atPath: fileURL.path) else { return }
+        try FileManager.default.removeItem(at: fileURL)
+    }
+}
+
+public extension ConnectorSettingsStore {
+    func delete() throws {}
 }
 
 private struct SchemaEnvelope: Decodable {

@@ -8,6 +8,7 @@ public enum StatusHistoryStoreError: Error, Equatable {
 public protocol StatusHistoryStore: Sendable {
     func load() throws -> StatusHistory
     func save(_ history: StatusHistory) throws
+    func delete() throws
 }
 
 public struct JSONStatusHistoryStore: StatusHistoryStore {
@@ -50,6 +51,15 @@ public struct JSONStatusHistoryStore: StatusHistoryStore {
         encoder.outputFormatting = [.sortedKeys]
         try encoder.encode(history).write(to: fileURL, options: [.atomic])
     }
+
+    public func delete() throws {
+        guard FileManager.default.fileExists(atPath: fileURL.path) else { return }
+        try FileManager.default.removeItem(at: fileURL)
+    }
+}
+
+public extension StatusHistoryStore {
+    func delete() throws {}
 }
 
 private struct SchemaEnvelope: Decodable {
