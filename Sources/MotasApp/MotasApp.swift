@@ -32,6 +32,8 @@ final class AppModel: ObservableObject {
     @Published private(set) var isDemoMode = false
     @Published private(set) var sourceLabels: ConnectorSourceLabels
     @Published private(set) var diagnosticsError: String?
+    @Published private(set) var connectionTestResults: [ConnectionTestResult] = []
+    @Published private(set) var isTestingConnection = false
 
     private var scenarioIndex = 0
     private var liveConnectors: [any StatusConnector] = []
@@ -136,6 +138,38 @@ final class AppModel: ObservableObject {
             snapshot = MockData.readySnapshot()
         }
         persistSnapshot()
+    }
+
+    func testSettings(
+        _ draft: MotasSettings,
+        secretUpdates: [ConnectorSecretKey: String]
+    ) async -> [ConnectionTestResult] {
+        guard !isTestingConnection else { return connectionTestResults }
+        do {
+            let validated = try draft.validated()
+            let resolved = ConnectorConfigurationResolver().resolve(
+                settings: validated,
+                persistedDocumentExists: false,
+                environment: [:],
+                secretStore: TransientSecretStore(values: secretUpdates)
+            )
+            let connectors = EnvironmentConnectorFactory.connectors(resolved: resolved)
+            isTestingConnection = true
+            defer { isTestingConnection = false }
+            connectionTestResults = await ConnectorTestRunner().run(connectors)
+            return connectionTestResults
+        } catch {
+            connectionTestResults = [
+                ConnectionTestResult(
+                    id: "settings",
+                    name: "Settings",
+                    status: .unsupported,
+                    quality: .unavailable,
+                    message: Self.settingsErrorMessage(error)
+                ),
+            ]
+            return connectionTestResults
+        }
     }
 
     func saveSettings(

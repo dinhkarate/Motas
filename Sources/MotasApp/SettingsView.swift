@@ -26,6 +26,10 @@ struct SettingsView: View {
     var body: some View {
         Form {
             generalSection
+            if model.isDemoMode {
+                setupGuideSection
+            }
+            connectionTestSection
             claudeCodeSection
             nineRouterSection
             cliProxyAPISection
@@ -138,6 +142,50 @@ struct SettingsView: View {
         }
     }
 
+    private var setupGuideSection: some View {
+        Section("Get started") {
+            Text("Motas is running in demo mode. Enable a connector below, enter its local endpoint or Claude status-file path, then use Test enabled connectors before saving.")
+                .font(.callout)
+            Text("Claude Code: configure scripts/motas-claude-statusline as Claude Code's statusLine command. 9Router and CLIProxyAPI are read-only health/account checks.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    private var connectionTestSection: some View {
+        Section("Connection test") {
+            Button(model.isTestingConnection ? "Testing…" : "Test enabled connectors") {
+                Task { await testConnection() }
+            }
+            .disabled(model.isTestingConnection)
+
+            if model.connectionTestResults.isEmpty {
+                Text("No test has been run yet.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            ForEach(model.connectionTestResults) { result in
+                VStack(alignment: .leading, spacing: 2) {
+                    HStack {
+                        Text(result.name)
+                        Spacer()
+                        Text(result.status.rawValue.capitalized)
+                            .foregroundStyle(result.status.color)
+                    }
+                    if let message = result.message {
+                        Text(message)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            }
+
+            Text("Tests read-only connector endpoints using the current draft. Nothing is saved until you press Save Settings.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+    }
+
     private var claudeCodeSection: some View {
         Section("Claude Code") {
             Toggle("Monitor Claude Code", isOn: $draft.claudeCode.isEnabled)
@@ -238,22 +286,17 @@ struct SettingsView: View {
         )
     }
 
-    private func save() async {
-        var settings = draft
-        settings.nineRouter.baseURL = URL(string: nineRouterURL)
-            ?? URL(string: "invalid://missing-host")!
-        settings.cliProxyAPI.baseURL = URL(string: cliProxyAPIURL)
-            ?? URL(string: "invalid://missing-host")!
+    private func testConnection() async {
+        _ = await model.testSettings(
+            draftSettings(),
+            secretUpdates: secretUpdates()
+        )
+    }
 
-        let updates: [ConnectorSecretKey: String] = [
-            .nineRouterDashboardToken: dashboardToken,
-            .nineRouterCLIToken: cliToken,
-            .cliProxyAPIProxyKey: proxyAPIKey,
-            .cliProxyAPIManagementKey: managementKey,
-        ]
+    private func save() async {
         if await model.saveSettings(
-            settings,
-            secretUpdates: updates,
+            draftSettings(),
+            secretUpdates: secretUpdates(),
             secretRemovals: secretRemovals
         ) {
             dashboardToken = ""
@@ -262,6 +305,24 @@ struct SettingsView: View {
             managementKey = ""
             secretRemovals = []
         }
+    }
+
+    private func draftSettings() -> MotasSettings {
+        var settings = draft
+        settings.nineRouter.baseURL = URL(string: nineRouterURL)
+            ?? URL(string: "invalid://missing-host")!
+        settings.cliProxyAPI.baseURL = URL(string: cliProxyAPIURL)
+            ?? URL(string: "invalid://missing-host")!
+        return settings
+    }
+
+    private func secretUpdates() -> [ConnectorSecretKey: String] {
+        [
+            .nineRouterDashboardToken: dashboardToken,
+            .nineRouterCLIToken: cliToken,
+            .cliProxyAPIProxyKey: proxyAPIKey,
+            .cliProxyAPIManagementKey: managementKey,
+        ]
     }
 
     private func syncDraft(from settings: MotasSettings) {
@@ -275,6 +336,17 @@ struct SettingsView: View {
         case .environment: "Provided by environment"
         case .keychain: "Stored in Keychain"
         case .unset: "Not configured"
+        }
+    }
+}
+
+private extension ConnectionTestStatus {
+    var color: Color {
+        switch self {
+        case .healthy: .green
+        case .degraded: .orange
+        case .unauthorized, .unreachable: .red
+        case .unsupported, .unknown: .secondary
         }
     }
 }
