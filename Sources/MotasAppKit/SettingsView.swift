@@ -2,8 +2,8 @@ import SwiftUI
 import AppKit
 import MotasCore
 
-struct SettingsView: View {
-    @ObservedObject var model: AppModel
+public struct SettingsView: View {
+    @ObservedObject public var model: AppModel
 
     @State private var draft: MotasSettings
     @State private var nineRouterURL: String
@@ -15,59 +15,28 @@ struct SettingsView: View {
     @State private var secretRemovals: Set<ConnectorSecretKey> = []
     @State private var showResetConfirmation = false
     @State private var diagnosticsMessage: String?
+    @State private var launchAtLoginMessage: String?
 
-    init(model: AppModel) {
+    public init(model: AppModel) {
         self.model = model
         _draft = State(initialValue: model.settings)
         _nineRouterURL = State(initialValue: model.settings.nineRouter.baseURL.absoluteString)
         _cliProxyAPIURL = State(initialValue: model.settings.cliProxyAPI.baseURL.absoluteString)
     }
 
-    var body: some View {
-        Form {
-            generalSection
-            if model.isDemoMode {
-                setupGuideSection
-            }
-            connectionTestSection
-            claudeCodeSection
-            nineRouterSection
-            cliProxyAPISection
-
-            if model.isDemoMode {
-                prototypeSection
-            }
-
-            if let configurationError = model.configurationError {
-                Section("Configuration") {
-                    Text(configurationError)
-                        .font(.caption)
-                        .foregroundStyle(.orange)
-                }
-            }
-
-            if let settingsSaveError = model.settingsSaveError {
-                Section("Save failed") {
-                    Text(settingsSaveError)
-                        .font(.caption)
-                        .foregroundStyle(.red)
-                }
-            }
-
-            diagnosticsSection
-
-            HStack {
-                Spacer()
-                Button("Save Settings") {
-                    Task { await save() }
-                }
-                .disabled(model.isSavingSettings)
-                .keyboardShortcut("s")
-            }
+    public var body: some View {
+        TabView {
+            Form { generalTab }
+                .formStyle(.grouped)
+                .tabItem { Label("General", systemImage: "gearshape") }
+            Form { sourcesTab }
+                .formStyle(.grouped)
+                .tabItem { Label("Sources", systemImage: "server.rack") }
+            Form { advancedTab }
+                .formStyle(.grouped)
+                .tabItem { Label("Advanced", systemImage: "wrench.and.screwdriver") }
         }
-        .formStyle(.grouped)
-        .padding()
-        .frame(width: 580, height: 680)
+        .frame(width: 520, height: 440)
         .onChange(of: model.settings) { _, settings in
             syncDraft(from: settings)
         }
@@ -133,6 +102,108 @@ struct SettingsView: View {
         }
     }
 
+    private var generalTab: some View {
+        Group {
+            Section("Startup") {
+                Toggle("Launch at login", isOn: $draft.launchAtLogin)
+                    .onChange(of: draft.launchAtLogin) { _, enabled in
+                        launchAtLoginMessage = model.setLaunchAtLogin(enabled) ?? "Launch at login updated."
+                    }
+                if let launchAtLoginMessage {
+                    Text(launchAtLoginMessage)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            Section("Refresh") {
+                Toggle("Automatic refresh", isOn: $draft.automaticRefreshEnabled)
+                Picker("Refresh every", selection: $draft.automaticRefreshInterval) {
+                    Text("5 minutes").tag(300.0)
+                    Text("10 minutes").tag(600.0)
+                    Text("15 minutes").tag(900.0)
+                    Text("30 minutes").tag(1800.0)
+                }
+                .disabled(!draft.automaticRefreshEnabled)
+            }
+            Section("Menu bar") {
+                Toggle("Show percentage in menu bar", isOn: $draft.showMenuBarPercentage)
+                Toggle("Tint menu bar icon when quota is low", isOn: $draft.tintMenuBarWhenLow)
+            }
+            HStack {
+                Spacer()
+                Button("Save Settings") {
+                    Task { await save() }
+                }
+                .disabled(model.isSavingSettings)
+                .keyboardShortcut("s")
+            }
+            if let settingsSaveError = model.settingsSaveError {
+                Text(settingsSaveError)
+                    .font(.caption)
+                    .foregroundStyle(.red)
+            }
+            if let configurationError = model.configurationError {
+                Text(configurationError)
+                    .font(.caption)
+                    .foregroundStyle(.orange)
+            }
+        }
+    }
+
+    private var sourcesTab: some View {
+        Group {
+            if model.isDemoMode {
+                setupGuideSection
+            }
+            claudeCodeSection
+            nineRouterSection
+            cliProxyAPISection
+            Section("Quota probing") {
+                Toggle("Fetch account quota from proxies", isOn: $draft.quotaProbeEnabled)
+                Picker("Quota refresh every", selection: $draft.quotaProbeInterval) {
+                    Text("10 minutes").tag(600.0)
+                    Text("20 minutes").tag(1200.0)
+                    Text("30 minutes").tag(1800.0)
+                    Text("60 minutes").tag(3600.0)
+                }
+                Text("Quota probes ask the proxy to call the upstream provider. Motas never forces a refresh and never calls reset endpoints.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            Section("Connection test") {
+                Button(model.isTestingConnection ? "Testing…" : "Test enabled connectors") {
+                    Task { await testConnection() }
+                }
+                .disabled(model.isTestingConnection)
+                ForEach(model.connectionTestResults) { result in
+                    Label(
+                        result.message ?? result.status.rawValue.capitalized,
+                        systemImage: result.status.symbolName
+                    )
+                    .foregroundStyle(result.status.color)
+                    .font(.caption)
+                }
+            }
+            HStack {
+                Spacer()
+                Button("Save Settings") {
+                    Task { await save() }
+                }
+                .disabled(model.isSavingSettings)
+                .keyboardShortcut("s")
+            }
+        }
+    }
+
+    private var advancedTab: some View {
+        Group {
+            diagnosticsSection
+            if model.isDemoMode {
+                prototypeSection
+            }
+        }
+    }
+
     private var generalSection: some View {
         Section("Refresh") {
             Toggle("Automatic refresh", isOn: $draft.automaticRefreshEnabled)
@@ -187,14 +258,17 @@ struct SettingsView: View {
     }
 
     private var claudeCodeSection: some View {
-        Section("Claude Code") {
-            Toggle("Monitor Claude Code", isOn: $draft.claudeCode.isEnabled)
-            TextField("Status file", text: $draft.claudeCode.statusFilePath)
-                .textFieldStyle(.roundedBorder)
-            sourceLabel(for: model.sourceLabels.claudeCodeEnabled)
-            Text("Motas reads the sanitized status-line cache; it does not store a Claude credential.")
-                .font(.caption)
-                .foregroundStyle(.secondary)
+        GroupBox("Claude Code") {
+            VStack(alignment: .leading, spacing: 8) {
+                Toggle("Monitor Claude Code", isOn: $draft.claudeCode.isEnabled)
+                TextField("Status file", text: $draft.claudeCode.statusFilePath)
+                    .textFieldStyle(.roundedBorder)
+                sourceLabel(for: model.sourceLabels.claudeCodeEnabled)
+                Text("Motas reads the sanitized status-line cache; it does not store a Claude credential.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                testButton(id: "claude-code")
+            }
         }
     }
 
@@ -212,6 +286,7 @@ struct SettingsView: View {
                 SecureField("CLI token (leave empty to keep)", text: $cliToken)
                 secretStatus("CLI token", source: model.sourceLabels.nineRouterCLI)
                 stagedRemovalButton(for: .nineRouterCLIToken)
+                testButton(id: "9router")
             }
         }
     }
@@ -230,6 +305,25 @@ struct SettingsView: View {
                 SecureField("Management key (leave empty to keep)", text: $managementKey)
                 secretStatus("Management key", source: model.sourceLabels.cliProxyAPIManagementKey)
                 stagedRemovalButton(for: .cliProxyAPIManagementKey)
+                testButton(id: "cliproxyapi")
+            }
+        }
+    }
+
+    private func testButton(id: String) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Button("Test") {
+                Task { await testConnection() }
+            }
+            .disabled(model.isTestingConnection)
+            .buttonStyle(.link)
+            if let result = model.connectionTestResults.first(where: { $0.id == id }) {
+                Label(
+                    result.message ?? result.status.rawValue.capitalized,
+                    systemImage: result.status.symbolName
+                )
+                .foregroundStyle(result.status.color)
+                .font(.caption)
             }
         }
     }
@@ -347,6 +441,15 @@ private extension ConnectionTestStatus {
         case .degraded: .orange
         case .unauthorized, .unreachable: .red
         case .unsupported, .unknown: .secondary
+        }
+    }
+
+    var symbolName: String {
+        switch self {
+        case .healthy: "checkmark.circle.fill"
+        case .degraded: "exclamationmark.triangle.fill"
+        case .unauthorized, .unreachable: "xmark.octagon.fill"
+        case .unsupported, .unknown: "questionmark.circle.fill"
         }
     }
 }

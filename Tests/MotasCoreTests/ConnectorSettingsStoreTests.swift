@@ -1,5 +1,6 @@
 import Foundation
 import Testing
+
 @testable import MotasCore
 
 private func temporaryStore() throws -> JSONConnectorSettingsStore {
@@ -101,7 +102,9 @@ func validEndpointsAccepted() throws {
             baseURL: URL(string: "http://localhost:8317/v1")!
         )
     )
-    #expect(try settings.validated().nineRouter.baseURL.absoluteString == "https://router.example.com:8443")
+    #expect(
+        try settings.validated().nineRouter.baseURL.absoluteString
+            == "https://router.example.com:8443")
     #expect(try settings.validated().cliProxyAPI.baseURL.absoluteString == "http://localhost:8317")
 }
 
@@ -121,7 +124,9 @@ func endpointsWithCredentialsRejected() throws {
             baseURL: URL(string: "http://localhost:8317?api_key=secret")!
         )
     )
-    #expect(throws: ConnectorSettingsValidationError.unsupportedQueryOrFragment("CLIProxyAPI endpoint")) {
+    #expect(
+        throws: ConnectorSettingsValidationError.unsupportedQueryOrFragment("CLIProxyAPI endpoint")
+    ) {
         _ = try withQuery.validated()
     }
 }
@@ -145,7 +150,8 @@ func endpointsInvalidRejected() throws {
     let fragment = MotasSettings(
         nineRouter: NineRouterSettings(baseURL: URL(string: "http://localhost:20128#frag")!)
     )
-    #expect(throws: ConnectorSettingsValidationError.unsupportedQueryOrFragment("9Router endpoint")) {
+    #expect(throws: ConnectorSettingsValidationError.unsupportedQueryOrFragment("9Router endpoint"))
+    {
         _ = try fragment.validated()
     }
 }
@@ -184,4 +190,25 @@ func invalidFileAndEndpointPathsRejected() throws {
     #expect(throws: ConnectorSettingsValidationError.unsupportedPath("CLIProxyAPI endpoint")) {
         _ = try arbitraryCLIPath.validated()
     }
+}
+
+@Test("v1 settings document decodes with v2 defaults")
+func v1SettingsDecodeWithDefaults() throws {
+    let v1 = Data(
+        #"{"schemaVersion":1,"automaticRefreshEnabled":true,"claudeCode":{"isEnabled":false,"statusFilePath":"~/Library/Application Support/Motas/claude-code-status.json"},"nineRouter":{"isEnabled":false,"baseURL":"http://localhost:20128"},"cliProxyAPI":{"isEnabled":false,"baseURL":"http://localhost:8317"}}"#
+            .utf8)
+    let decoded = try JSONDecoder().decode(MotasSettings.self, from: v1)
+    #expect(decoded.automaticRefreshInterval == 300)
+    #expect(decoded.quotaProbeEnabled == true)
+    #expect(decoded.quotaProbeInterval == 600)
+    #expect(decoded.showMenuBarPercentage == true)
+    #expect(decoded.tintMenuBarWhenLow == true)
+    #expect(decoded.launchAtLogin == false)
+    let reencoded = try JSONEncoder().encode(decoded)
+    let envelope = try JSONDecoder().decode(SchemaEnvelopeForTest.self, from: reencoded)
+    #expect(envelope.schemaVersion == 2)
+}
+
+private struct SchemaEnvelopeForTest: Decodable {
+    let schemaVersion: Int
 }

@@ -88,18 +88,52 @@ Possible future options:
 
 `auth-files` exposes runtime account availability, status messages, request counters and retry metadata. It does not provide a uniform 5-hour/weekly percentage for every provider.
 
-Precise quota requires:
+## Quota
 
-- Provider-specific upstream inspection through controlled management API calls; or
-- A dedicated companion such as a quota inspector; or
-- A future stable CLIProxyAPI quota endpoint.
+Motas probes `POST /v0/management/quota/fetch` per account:
 
-Motas therefore reports account health and partial data instead of inventing percentages.
+```text
+POST /v0/management/quota/fetch
+Content-Type: application/json
+Authorization: Bearer <managementKey>
+
+{"auth_index": "<authIndex>"}
+```
+
+Response shape (`groups[].buckets[]`):
+
+```json
+{
+  "subscription": {"plan": "Pro"},
+  "groups": [{
+    "displayName": "Claude",
+    "buckets": [{
+      "window": "5-hour",
+      "remainingFraction": 0.34,
+      "resetTime": "2026-09-14T12:00:00Z"
+    }]
+  }]
+}
+```
+
+Rules:
+
+- Buckets with a null `remainingFraction` produce no window, never `0%`.
+- An account whose enforced windows all read `0` maps to `.exhausted`.
+- HTTP 501 (`no quota provider available for credential`) or 404 marks the
+  account permanently unsupported for the process lifetime; those accounts
+  legitimately show no bars.
+- When every account is unsupported, the tile shows account health only with
+  the subtitle `"Quota not exposed by this proxy build."`
+- Route windows keep the HIGHEST remaining fraction per window name (pool
+  semantics: the router can still serve through the best account).
+- `subscription.plan`/`tierName` is appended to the account label.
+- Motas never calls reset, switch, start or stop endpoints.
 
 ## Security notes
 
 - Proxy API key and management key are distinct.
-- Both are stored in the containing app's Keychain; the widget never receives them.
+- Both are stored in the app's Keychain.
 - Environment keys remain development-only process overrides and are never imported into Keychain.
 - Management API can mutate configuration; Motas v1 uses GET-only endpoints.
 - Remote management should remain disabled unless explicitly required.

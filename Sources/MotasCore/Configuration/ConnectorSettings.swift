@@ -76,11 +76,20 @@ public struct CLIProxyAPISettings: Codable, Sendable, Equatable {
 }
 
 /// The persisted, non-secret connector configuration contract.
-public struct MotasSettings: Codable, Sendable, Equatable {
-    public static let currentSchemaVersion = 1
+public struct MotasSettings: Sendable, Equatable {
+    public static let currentSchemaVersion = 2
+
+    public static let defaultAutomaticRefreshInterval: TimeInterval = 300
+    public static let defaultQuotaProbeInterval: TimeInterval = 600
 
     public var schemaVersion: Int
     public var automaticRefreshEnabled: Bool
+    public var automaticRefreshInterval: TimeInterval
+    public var quotaProbeEnabled: Bool
+    public var quotaProbeInterval: TimeInterval
+    public var showMenuBarPercentage: Bool
+    public var tintMenuBarWhenLow: Bool
+    public var launchAtLogin: Bool
     public var claudeCode: ClaudeCodeSettings
     public var nineRouter: NineRouterSettings
     public var cliProxyAPI: CLIProxyAPISettings
@@ -88,12 +97,24 @@ public struct MotasSettings: Codable, Sendable, Equatable {
     public init(
         schemaVersion: Int = MotasSettings.currentSchemaVersion,
         automaticRefreshEnabled: Bool = true,
+        automaticRefreshInterval: TimeInterval = MotasSettings.defaultAutomaticRefreshInterval,
+        quotaProbeEnabled: Bool = true,
+        quotaProbeInterval: TimeInterval = MotasSettings.defaultQuotaProbeInterval,
+        showMenuBarPercentage: Bool = true,
+        tintMenuBarWhenLow: Bool = true,
+        launchAtLogin: Bool = false,
         claudeCode: ClaudeCodeSettings = .default(),
         nineRouter: NineRouterSettings = .default(),
         cliProxyAPI: CLIProxyAPISettings = .default()
     ) {
         self.schemaVersion = schemaVersion
         self.automaticRefreshEnabled = automaticRefreshEnabled
+        self.automaticRefreshInterval = automaticRefreshInterval
+        self.quotaProbeEnabled = quotaProbeEnabled
+        self.quotaProbeInterval = quotaProbeInterval
+        self.showMenuBarPercentage = showMenuBarPercentage
+        self.tintMenuBarWhenLow = tintMenuBarWhenLow
+        self.launchAtLogin = launchAtLogin
         self.claudeCode = claudeCode
         self.nineRouter = nineRouter
         self.cliProxyAPI = cliProxyAPI
@@ -113,9 +134,10 @@ public struct MotasSettings: Codable, Sendable, Equatable {
         guard expandedStatusPath.hasPrefix("/") else {
             throw ConnectorSettingsValidationError.invalidStatusFilePath
         }
-        result.claudeCode.statusFilePath = URL(
-            fileURLWithPath: expandedStatusPath
-        ).standardizedFileURL.path
+        result.claudeCode.statusFilePath =
+            URL(
+                fileURLWithPath: expandedStatusPath
+            ).standardizedFileURL.path
         result.nineRouter.baseURL = try ConnectorEndpointRule.validate(
             baseURL: nineRouter.baseURL,
             label: "9Router endpoint"
@@ -125,7 +147,70 @@ public struct MotasSettings: Codable, Sendable, Equatable {
             label: "CLIProxyAPI endpoint",
             allowedSuffixes: ["/v1", "/v0/management"]
         )
+        result.automaticRefreshInterval = min(max(result.automaticRefreshInterval, 60), 3600)
+        result.quotaProbeInterval = min(max(result.quotaProbeInterval, 300), 7200)
+        result.schemaVersion = MotasSettings.currentSchemaVersion
         return result
+    }
+}
+
+extension MotasSettings: Codable {
+    private enum CodingKeys: String, CodingKey {
+        case schemaVersion
+        case automaticRefreshEnabled
+        case automaticRefreshInterval
+        case quotaProbeEnabled
+        case quotaProbeInterval
+        case showMenuBarPercentage
+        case tintMenuBarWhenLow
+        case launchAtLogin
+        case claudeCode
+        case nineRouter
+        case cliProxyAPI
+    }
+
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        schemaVersion = (try? container.decodeIfPresent(Int.self, forKey: .schemaVersion)) ?? 1
+        automaticRefreshEnabled =
+            (try? container.decodeIfPresent(Bool.self, forKey: .automaticRefreshEnabled)) ?? true
+        automaticRefreshInterval =
+            (try? container.decodeIfPresent(TimeInterval.self, forKey: .automaticRefreshInterval))
+            ?? MotasSettings.defaultAutomaticRefreshInterval
+        quotaProbeEnabled =
+            (try? container.decodeIfPresent(Bool.self, forKey: .quotaProbeEnabled)) ?? true
+        quotaProbeInterval =
+            (try? container.decodeIfPresent(TimeInterval.self, forKey: .quotaProbeInterval))
+            ?? MotasSettings.defaultQuotaProbeInterval
+        showMenuBarPercentage =
+            (try? container.decodeIfPresent(Bool.self, forKey: .showMenuBarPercentage)) ?? true
+        tintMenuBarWhenLow =
+            (try? container.decodeIfPresent(Bool.self, forKey: .tintMenuBarWhenLow)) ?? true
+        launchAtLogin = (try? container.decodeIfPresent(Bool.self, forKey: .launchAtLogin)) ?? false
+        claudeCode =
+            (try? container.decodeIfPresent(ClaudeCodeSettings.self, forKey: .claudeCode))
+            ?? .default()
+        nineRouter =
+            (try? container.decodeIfPresent(NineRouterSettings.self, forKey: .nineRouter))
+            ?? .default()
+        cliProxyAPI =
+            (try? container.decodeIfPresent(CLIProxyAPISettings.self, forKey: .cliProxyAPI))
+            ?? .default()
+    }
+
+    public func encode(to encoder: any Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(MotasSettings.currentSchemaVersion, forKey: .schemaVersion)
+        try container.encode(automaticRefreshEnabled, forKey: .automaticRefreshEnabled)
+        try container.encode(automaticRefreshInterval, forKey: .automaticRefreshInterval)
+        try container.encode(quotaProbeEnabled, forKey: .quotaProbeEnabled)
+        try container.encode(quotaProbeInterval, forKey: .quotaProbeInterval)
+        try container.encode(showMenuBarPercentage, forKey: .showMenuBarPercentage)
+        try container.encode(tintMenuBarWhenLow, forKey: .tintMenuBarWhenLow)
+        try container.encode(launchAtLogin, forKey: .launchAtLogin)
+        try container.encode(claudeCode, forKey: .claudeCode)
+        try container.encode(nineRouter, forKey: .nineRouter)
+        try container.encode(cliProxyAPI, forKey: .cliProxyAPI)
     }
 }
 

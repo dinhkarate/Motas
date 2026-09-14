@@ -1,0 +1,3 @@
+import MotasAppKit
+
+MotasApp.main()

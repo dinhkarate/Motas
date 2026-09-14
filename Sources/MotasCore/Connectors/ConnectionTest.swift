@@ -38,7 +38,7 @@ public struct ConnectorTestRunner: Sendable {
         await withTaskGroup(of: ConnectionTestResult.self) { group in
             for connector in connectors {
                 group.addTask {
-                    let result = await connector.refresh()
+                    let result = await connector.refresh(trigger: .manual)
                     return Self.summary(for: connector, result: result)
                 }
             }

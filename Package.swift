@@ -5,25 +5,37 @@ import PackageDescription
 let package = Package(
     name: "Motas",
     platforms: [
-        .macOS(.v14),
+        .macOS(.v14)
     ],
     products: [
         .library(name: "MotasCore", targets: ["MotasCore"]),
-        .executable(name: "MotasPrototype", targets: ["MotasApp"]),
+        .executable(name: "Motas", targets: ["MotasMain"]),
+        .executable(name: "MotasGallery", targets: ["MotasGallery"]),
     ],
     targets: [
         .target(
             name: "MotasCore",
             path: "Sources/MotasCore"
         ),
-        .executableTarget(
-            name: "MotasApp",
+        .target(
+            name: "MotasAppKit",
             dependencies: ["MotasCore"],
-            path: "Sources/MotasApp",
+            path: "Sources/MotasAppKit",
             linkerSettings: [
-                .linkedFramework("Security"),
+                .linkedFramework("Security")
             ]
         ),
+        .executableTarget(
+            name: "MotasMain",
+            dependencies: ["MotasAppKit"],
+            path: "Sources/MotasMain"
+        ),
+        .executableTarget(
+            name: "MotasGallery",
+            dependencies: ["MotasCore", "MotasAppKit"],
+            path: "Sources/MotasGallery"
+        ),
+
         .testTarget(
             name: "MotasCoreTests",
             dependencies: ["MotasCore"],

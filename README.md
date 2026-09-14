@@ -2,122 +2,62 @@
 
 **Motas = Mac + Quota**
 
-Motas is a native macOS AI quota and proxy-health utility. It combines a live menu bar surface with a desktop WidgetKit companion so users can see whether their AI coding stack is ready before starting a long session.
+Motas is a native macOS menu bar app that reads AI quota from your own proxy stack — CLIProxyAPI, 9Router, Claude Code — and shows it as a quota ring, per-window bars, and one conservative readiness state. It answers "can I start a long coding session right now?" without asking for provider credentials.
 
-## Current prototype
+![Motas panel showing quota ring and per-window bars](docs/images/ready-light.png)
 
-Implemented:
-
-- Normalized provider/proxy/quota models.
-- Conservative readiness engine.
-- Read-only Claude Code quota connector using the official status-line data contract.
-- Basic read-only 9Router health/account connector.
-- Basic read-only CLIProxyAPI health/account connector.
-- SwiftUI `MenuBarExtra` prototype.
-- WidgetKit extension source using a shared snapshot.
-- Atomic JSON snapshot persistence.
-- Persistent connector Settings with Keychain-backed proxy credentials.
-- Five-minute automatic refresh with manual refresh coalescing.
-- Pure readiness notification transition engine with cooldown/deduplication.
-- Swift tests for readiness, connectors, settings, notifications and snapshot privacy.
-
-Available connectors:
-
-- Claude Code
-- 9Router
-- CLIProxyAPI
-
-Planned connectors:
-
-- OpenRouter (optional MVP)
-- ProxyPal (post-MVP)
-
-## Requirements
-
-Core package and menu bar prototype:
-
-```text
-macOS 14+
-Swift 6+
-```
-
-Full app + desktop widget project generation:
-
-```text
-Full Xcode installation
-XcodeGen
-Apple Development team for App Group signing
-```
-
-## Build and test the core prototype
+## Install
 
 ```bash
+brew install --cask --no-quarantine dinhkarate/motas/motas
+```
+
+Motas is ad-hoc signed, not notarized, hence `--no-quarantine`.
+
+## Build from source
+
+```bash
+swift build
 swift test
-swift build --product MotasPrototype
-swift run MotasPrototype
+swift run Motas
+scripts/build-app.sh 0.1.0   # dist/Motas.app, Apple Silicon
 ```
 
-`swift run MotasPrototype` launches the menu bar prototype. On first launch with no configured connector it starts in demo mode; save Settings to configure real monitoring.
+Requirements: macOS 14+, Swift 6+. Command Line Tools suffice; full Xcode is not needed (and the old WidgetKit widget is gone).
 
-To monitor Claude Code quota and local proxies instead of mock data:
+`swift run Motas` launches the menu bar app. On first launch with no configured connector it starts in demo mode; save Settings to configure real monitoring.
 
-```bash
-chmod +x scripts/motas-claude-statusline
-```
+## Connector setup
 
-Configure Claude Code to run that script as its `statusLine` command, then launch:
+- **CLIProxyAPI** (default `http://localhost:8317`): enable in Settings → Sources, enter the endpoint, put the management key in the Keychain field. Motas probes `POST /v0/management/quota/fetch` per account. Accounts whose provider plugin exposes no quota endpoint (HTTP 501) show health only — that is expected.
+- **9Router** (default `http://localhost:20128`): enter the endpoint plus a dashboard or CLI token. Motas probes `GET /api/usage/{connectionId}` per active connection. Never appends `?force=1`.
+- **Claude Code**: configure `scripts/motas-claude-statusline` as Claude Code's `statusLine` command, then set `MOTAS_CLAUDE_CODE_ENABLED=1`. See [Claude Code connector setup](docs/connectors/claude-code.md).
 
-```bash
-MOTAS_CLAUDE_CODE_ENABLED=1 \
-MOTAS_9ROUTER_URL=http://localhost:20128 \
-MOTAS_CLIPROXYAPI_URL=http://localhost:8317 \
-swift run MotasPrototype
-```
-
-See [Claude Code connector setup](docs/connectors/claude-code.md) for the status-line configuration and privacy boundary.
-
-Optional monitoring configuration:
+Environment overrides (development only, take precedence, never imported into Keychain):
 
 ```text
 MOTAS_CLAUDE_CODE_ENABLED
 MOTAS_CLAUDE_STATUS_FILE
-MOTAS_9ROUTER_DASHBOARD_TOKEN
-MOTAS_9ROUTER_CLI_TOKEN
-MOTAS_CLIPROXYAPI_KEY
-MOTAS_CLIPROXYAPI_MANAGEMENT_KEY
+MOTAS_9ROUTER_URL / MOTAS_9ROUTER_DASHBOARD_TOKEN / MOTAS_9ROUTER_CLI_TOKEN
+MOTAS_CLIPROXYAPI_URL / MOTAS_CLIPROXYAPI_KEY / MOTAS_CLIPROXYAPI_MANAGEMENT_KEY
 ```
 
-Settings and Keychain are the normal configuration surface. Environment variables remain development overrides for the current process; they take precedence over saved values and are never imported into Keychain.
+Non-secret Settings live in `~/Library/Application Support/Motas/settings.json`. Read [Settings, Keychain and refresh architecture](docs/architecture/settings-keychain-auto-refresh.md) for storage, precedence, and refresh behavior.
 
-Non-secret Settings live in:
+## Privacy boundary
 
-```text
-~/Library/Application Support/Motas/settings.json
-```
+- Proxy credentials live only in Keychain (or dev-process environment).
+- The persisted snapshot, history, logs and diagnostics contain normalized percentages and masked labels only — no keys, no tokens, no raw responses.
+- Every proxy call is read-only. Motas never touches reset, switch, start or stop endpoints.
+- Motas never invents a percentage, a reset time, or a green state. No data means partial, not healthy.
 
-Read [Settings, Keychain and refresh architecture](docs/architecture/settings-keychain-auto-refresh.md) for storage, precedence, and refresh behavior.
+## License
 
-## Generate the Xcode project
-
-Install XcodeGen after full Xcode is installed:
-
-```bash
-brew install xcodegen
-xcodegen generate
-open Motas.xcodeproj
-```
-
-Before signing, set your Apple Development Team and register the App Group:
-
-```text
-group.dev.motas.app
-```
-
-The generated Xcode project is intentionally ignored because `project.yml` is the source of truth.
+MIT. See [LICENSE](LICENSE).
 
 ## Architecture
 
-- [macOS surface architecture](docs/adr/001-macos-surface-architecture.md)
+- [Goal and non-negotiables](GOAL.md)
 - [Normalized status model](docs/architecture/normalized-status-model.md)
 - [Readiness rules](docs/architecture/readiness-rules.md)
 - [Settings, Keychain and refresh](docs/architecture/settings-keychain-auto-refresh.md)
@@ -127,14 +67,6 @@ The generated Xcode project is intentionally ignored because `project.yml` is th
 - [Truthful status presentation](docs/architecture/status-presentation.md)
 - [Guided setup and connection testing](docs/architecture/connection-testing.md)
 - [Claude Code connector](docs/connectors/claude-code.md)
-- [9Router connector research](docs/connectors/9router.md)
-- [CLIProxyAPI connector research](docs/connectors/cliproxyapi.md)
-- [MVP user stories](docs/product/mvp-user-stories.md)
+- [9Router connector](docs/connectors/9router.md)
+- [CLIProxyAPI connector](docs/connectors/cliproxyapi.md)
 - [Frozen v1 scope](docs/product/v1-scope.md)
-- [MVP completion roadmap](docs/implementation-plans/mvp-completion-roadmap.md)
-
-## Verification status
-
-The current environment has Apple Command Line Tools and Swift 6, so the Swift package and menu bar executable are buildable/testable.
-
-The WidgetKit target cannot be validated with `xcodebuild` until full Xcode is installed and selected with `xcode-select`.

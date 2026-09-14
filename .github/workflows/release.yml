@@ -1,0 +1,37 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+jobs:
+  release:
+    runs-on: macos-15
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: '16.2'
+      - run: scripts/make-release.sh ${GITHUB_REF_NAME#v}
+      - run: >
+          gh release create "$GITHUB_REF_NAME"
+          "dist/Motas-${GITHUB_REF_NAME#v}.zip"
+          "dist/Motas-${GITHUB_REF_NAME#v}.zip.sha256"
+          packaging/homebrew/motas.rb
+          --title "$GITHUB_REF_NAME" --notes-file - <<'EOF'
+          Ad-hoc signed, Apple Silicon build. Install with:
+            brew install --cask --no-quarantine dinhkarate/motas/motas
+          If dinhkarate/homebrew-motas was not updated automatically, copy packaging/homebrew/motas.rb to the tap's Casks/motas.rb manually.
+          EOF
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - if: secrets.HOMEBREW_TAP_TOKEN != ''
+        run: |
+          git clone "https://x-access-token:${HOMEBREW_TAP_TOKEN}@github.com/dinhkarate/homebrew-motas.git" /tmp/tap
+          mkdir -p /tmp/tap/Casks
+          cp packaging/homebrew/motas.rb /tmp/tap/Casks/motas.rb
+          cd /tmp/tap && git add Casks/motas.rb && git -c user.name="motas-release" -c user.email="motas-release@local" commit -m "motas ${GITHUB_REF_NAME#v}" && git push
+        env:
+          HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}

@@ -1,9 +1,5 @@
 import Foundation
 
-public enum SnapshotStoreError: Error, Equatable {
-    case appGroupUnavailable(String)
-}
-
 public struct SnapshotStore: Sendable {
     public static let defaultFilename = "motas-status-snapshot.json"
 
@@ -11,19 +7,6 @@ public struct SnapshotStore: Sendable {
 
     public init(fileURL: URL) {
         self.fileURL = fileURL
-    }
-
-    public init(
-        appGroupIdentifier: String,
-        filename: String = SnapshotStore.defaultFilename,
-        fileManager: FileManager = .default
-    ) throws {
-        guard let container = fileManager.containerURL(
-            forSecurityApplicationGroupIdentifier: appGroupIdentifier
-        ) else {
-            throw SnapshotStoreError.appGroupUnavailable(appGroupIdentifier)
-        }
-        self.fileURL = container.appendingPathComponent(filename, isDirectory: false)
     }
 
     public func save(_ snapshot: StatusSnapshot) throws {

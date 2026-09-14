@@ -31,7 +31,7 @@ public struct ClaudeCodeConnector: StatusConnector {
         self.now = now
     }
 
-    public func refresh() async -> ConnectorResult {
+    public func refresh(trigger: RefreshTrigger) async -> ConnectorResult {
         let checkedAt = now()
 
         guard FileManager.default.fileExists(atPath: configuration.statusFileURL.path) else {

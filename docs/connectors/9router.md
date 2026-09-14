@@ -67,19 +67,41 @@ Sources/MotasCore/Connectors/NineRouterConnector.swift
 
 `GET /api/usage/{connectionId}` calls provider-specific quota implementations and response shapes vary by provider. It may also refresh OAuth credentials as a side effect.
 
-Motas should add provider-specific decoders incrementally. Until then:
+## Quota
 
-```text
-reachable proxy != verified remaining quota
-configured combo != verified fallback availability
+Motas probes `GET /api/usage/{connectionId}` per active OAuth/API-key connection:
+
+```json
+{
+  "plan": "Claude Code",
+  "quotas": {
+    "session (5h)": {"remainingPercentage": 13, "resetAt": "1789000000"},
+    "weekly (7d)": {"remaining": 40, "total": 100, "unlimited": false}
+  }
+}
 ```
 
-The connector must not infer green/fallback from configuration alone.
+Rules:
+
+- `remainingPercentage / 100` wins when present, else `remaining / total`
+  (when `total > 0`); entries with neither are skipped.
+- `unlimited: true` entries produce no window.
+- `resetAt` accepts ISO8601 (with/without fractional seconds) and epoch
+  seconds or milliseconds as a string (`< 1e12` is seconds).
+- The legacy admin path returns arbitrary JSON under `quotas`, so a
+  `quotas`-decode failure degrades to no windows with quality partial —
+  never an error state.
+- **Never append `?force=1`**: it bypasses 9Router's own 5-minute upstream
+  cache and triggers provider 429s.
+- HTTP 404 marks the connection permanently unsupported for the process
+  lifetime; message-only 200s (`{"message": ...}`) keep the connection
+  healthy at quality partial.
+- Route aggregation follows the same pool-best rule as CLIProxyAPI.
 
 ## Security notes
 
 - Prefer localhost endpoints.
-- Dashboard and CLI tokens are stored in the containing app's Keychain; the widget never receives them.
+- Dashboard and CLI tokens are stored in the app's Keychain.
 - Environment tokens remain development-only process overrides and are never imported into Keychain.
 - The normalized snapshot contains only masked account labels and status.
 - Motas does not call mutation routes.

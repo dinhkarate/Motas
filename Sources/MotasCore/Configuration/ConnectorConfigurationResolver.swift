@@ -91,7 +91,8 @@ public struct ConnectorConfigurationResolver: Sendable {
         settings: MotasSettings,
         persistedDocumentExists: Bool,
         environment: [String: String],
-        secretStore: ConnectorSecretStore
+        secretStore: ConnectorSecretStore,
+        quotaCache: QuotaProbeCache? = nil
     ) -> Resolved {
         var issues: [ConfigurationResolutionIssue] = []
 
@@ -195,7 +196,8 @@ public struct ConnectorConfigurationResolver: Sendable {
                 role: .primary,
                 isRequiredRoute: true,
                 dashboardToken: dashboard.value,
-                cliToken: cliToken.value
+                cliToken: cliToken.value,
+                quotaCache: quotaCache
             )
             : nil
 
@@ -248,7 +250,8 @@ public struct ConnectorConfigurationResolver: Sendable {
                 role: isFallback ? .fallback : .primary,
                 isRequiredRoute: !isFallback,
                 proxyAPIKey: proxyKey.value,
-                managementKey: managementKey.value
+                managementKey: managementKey.value,
+                quotaCache: quotaCache
             )
             : nil
 

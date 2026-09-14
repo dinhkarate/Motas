@@ -9,7 +9,13 @@ public protocol StatusConnector: Sendable {
     var id: String { get }
     var displayName: String { get }
 
-    func refresh() async -> ConnectorResult
+    func refresh(trigger: RefreshTrigger) async -> ConnectorResult
+}
+
+public extension StatusConnector {
+    func refresh() async -> ConnectorResult {
+        await refresh(trigger: .scheduled)
+    }
 }
 
 public struct StaticConnector: StatusConnector {
@@ -23,7 +29,7 @@ public struct StaticConnector: StatusConnector {
         self.result = result
     }
 
-    public func refresh() async -> ConnectorResult {
+    public func refresh(trigger: RefreshTrigger) async -> ConnectorResult {
         result
     }
 }

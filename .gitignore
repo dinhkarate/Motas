@@ -1,8 +1,9 @@
+*.xcuserstate
 .DS_Store
-.pi/
 .build/
+.pi/
 .swiftpm/
 DerivedData/
-*.xcuserstate
-xcuserdata/
 Motas.xcodeproj/
+dist/
+xcuserdata/

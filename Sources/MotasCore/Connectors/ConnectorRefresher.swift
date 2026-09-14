@@ -15,12 +15,12 @@ public struct ConnectorRefresher: Sendable {
         self.now = now
     }
 
-    public func refresh() async -> StatusSnapshot {
+    public func refresh(trigger: RefreshTrigger = .scheduled) async -> StatusSnapshot {
         let capturedAt = now()
         let results = await withTaskGroup(of: ConnectorResult.self) { group in
             for connector in connectors {
                 group.addTask {
-                    await connector.refresh()
+                    await connector.refresh(trigger: trigger)
                 }
             }
 

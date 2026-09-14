@@ -1,16 +1,29 @@
-import SwiftUI
 import AppKit
 import MotasCore
+import ServiceManagement
+import SwiftUI
 
-@main
-struct MotasApp: App {
+public struct MotasApp: App {
     @StateObject private var model = AppModel()
 
-    var body: some Scene {
+    public init() {
+        NSApplication.shared.setActivationPolicy(.accessory)
+    }
+
+    public var body: some Scene {
         MenuBarExtra {
-            StatusPopoverView(model: model)
+            PanelView(model: model)
         } label: {
-            Label("Motas", systemImage: model.snapshot.readiness.state.symbolName)
+            Image(
+                nsImage: MenuBarIcon.image(
+                    fraction: StatusPresentation.tightestWindow(
+                        providers: model.snapshot.providers,
+                        proxies: model.snapshot.proxies
+                    )?.remainingFraction,
+                    state: model.snapshot.readiness.state,
+                    showsPercentage: model.settings.showMenuBarPercentage,
+                    tintWhenLow: model.settings.tintMenuBarWhenLow
+                ))
         }
         .menuBarExtraStyle(.window)
 
@@ -21,19 +34,21 @@ struct MotasApp: App {
 }
 
 @MainActor
-final class AppModel: ObservableObject {
-    @Published private(set) var snapshot: StatusSnapshot
-    @Published private(set) var lastRefreshError: String?
-    @Published private(set) var isRefreshing = false
-    @Published private(set) var settings: MotasSettings
-    @Published private(set) var configurationError: String?
-    @Published private(set) var settingsSaveError: String?
-    @Published private(set) var isSavingSettings = false
-    @Published private(set) var isDemoMode = false
-    @Published private(set) var sourceLabels: ConnectorSourceLabels
-    @Published private(set) var diagnosticsError: String?
-    @Published private(set) var connectionTestResults: [ConnectionTestResult] = []
-    @Published private(set) var isTestingConnection = false
+public final class AppModel: ObservableObject {
+    @Published public private(set) var snapshot: StatusSnapshot
+    @Published public private(set) var lastRefreshError: String?
+    @Published public private(set) var isRefreshing = false
+    @Published public private(set) var settings: MotasSettings
+    @Published public private(set) var configurationError: String?
+    @Published public private(set) var settingsSaveError: String?
+    @Published public private(set) var isSavingSettings = false
+    @Published public private(set) var isDemoMode = false
+    @Published public private(set) var sourceLabels: ConnectorSourceLabels
+    @Published public private(set) var diagnosticsError: String?
+    @Published public private(set) var connectionTestResults: [ConnectionTestResult] = []
+    @Published public private(set) var isTestingConnection = false
+
+    private let quotaCache = QuotaProbeCache()
 
     private var scenarioIndex = 0
     private var liveConnectors: [any StatusConnector] = []
@@ -76,7 +91,13 @@ final class AppModel: ObservableObject {
         loadSettings()
         loadHistory()
         rebuildConnectors()
-        snapshot = isDemoMode ? MockData.readySnapshot() : MockData.unknownSnapshot()
+        if isDemoMode {
+            snapshot = MockData.readySnapshot()
+        } else if let restored = Self.loadPersistedSnapshot() {
+            snapshot = restored
+        } else {
+            snapshot = MockData.unknownSnapshot()
+        }
         persistSnapshot()
 
         configureAutomaticRefresh()
@@ -85,9 +106,27 @@ final class AppModel: ObservableObject {
         }
     }
 
+    /// Seedable path for the MotasGallery render harness: no settings,
+    /// history, connectors, persistence or scheduling.
+    public init(previewSnapshot: StatusSnapshot, demoMode: Bool = false) {
+        self.settingsStore = Self.defaultSettingsStore()
+        self.secretStore = KeychainConnectorSecretStore()
+        self.environment = [:]
+        self.historyStore = Self.defaultHistoryStore()
+        self.history = .init()
+        self.settings = .default()
+        self.snapshot = previewSnapshot
+        self.sourceLabels = ConnectorSourceLabels(
+            claudeCodeEnabled: .disabled,
+            nineRouterEnabled: .disabled,
+            cliProxyAPIEnabled: .disabled
+        )
+        self.isDemoMode = demoMode
+    }
+
     /// Coalesces manual, startup, scheduled and post-save refresh requests into
     /// a single active batch plus at most one current-configuration follow-up.
-    func refresh() async {
+    public func refresh(trigger: RefreshTrigger = .scheduled) async {
         guard var revision = refreshCoalescer.begin() else { return }
         isRefreshing = true
 
@@ -100,7 +139,7 @@ final class AppModel: ObservableObject {
                 scenarioIndex = (scenarioIndex + 1) % scenarios.count
                 nextSnapshot = scenarios[scenarioIndex](Date())
             } else if !connectors.isEmpty {
-                nextSnapshot = await ConnectorRefresher(connectors: connectors).refresh()
+                nextSnapshot = await ConnectorRefresher(connectors: connectors).refresh(trigger: trigger)
             } else {
                 nextSnapshot = MockData.unknownSnapshot()
             }
@@ -123,7 +162,7 @@ final class AppModel: ObservableObject {
         }
     }
 
-    func selectScenario(_ state: ReadinessState) {
+    public func selectScenario(_ state: ReadinessState) {
         guard isDemoMode else { return }
         switch state {
         case .ready:
@@ -140,7 +179,7 @@ final class AppModel: ObservableObject {
         persistSnapshot()
     }
 
-    func testSettings(
+    public func testSettings(
         _ draft: MotasSettings,
         secretUpdates: [ConnectorSecretKey: String]
     ) async -> [ConnectionTestResult] {
@@ -151,7 +190,8 @@ final class AppModel: ObservableObject {
                 settings: validated,
                 persistedDocumentExists: false,
                 environment: [:],
-                secretStore: TransientSecretStore(values: secretUpdates)
+                secretStore: TransientSecretStore(values: secretUpdates),
+                quotaCache: nil
             )
             let connectors = EnvironmentConnectorFactory.connectors(resolved: resolved)
             isTestingConnection = true
@@ -166,13 +206,13 @@ final class AppModel: ObservableObject {
                     status: .unsupported,
                     quality: .unavailable,
                     message: Self.settingsErrorMessage(error)
-                ),
+                )
             ]
             return connectionTestResults
         }
     }
 
-    func saveSettings(
+    public func saveSettings(
         _ draft: MotasSettings,
         secretUpdates: [ConnectorSecretKey: String],
         secretRemovals: Set<ConnectorSecretKey>
@@ -202,7 +242,8 @@ final class AppModel: ObservableObject {
                 changedKeychain = true
             }
         } catch {
-            settingsSaveError = changedKeychain
+            settingsSaveError =
+                changedKeychain
                 ? "Some credentials were updated, but a later Keychain change failed. Retry Save or restore the previous credential."
                 : "A credential could not be saved to Keychain. Settings were not changed."
             return false
@@ -211,7 +252,8 @@ final class AppModel: ObservableObject {
         do {
             try settingsStore.save(validated)
         } catch {
-            settingsSaveError = "Credentials were updated, but settings could not be saved. Retry Save or restore the previous credential."
+            settingsSaveError =
+                "Credentials were updated, but settings could not be saved. Retry Save or restore the previous credential."
             return false
         }
 
@@ -225,11 +267,31 @@ final class AppModel: ObservableObject {
             snapshot = MockData.unknownSnapshot()
             persistSnapshot()
         }
-        await refresh()
+        await refresh(trigger: .manual)
         return true
     }
 
-    func diagnosticData(format: DiagnosticExportFormat) -> Data? {
+    private func policyForSettings(_ settings: MotasSettings) -> QuotaProbePolicy {
+        QuotaProbePolicy(
+            isEnabled: settings.quotaProbeEnabled,
+            interval: settings.quotaProbeInterval,
+            manualFloor: 60,
+            cacheMaximumAge: 3600
+        )
+    }
+
+    private static func loadPersistedSnapshot() -> StatusSnapshot? {
+        let directory = FileManager.default.urls(
+            for: .applicationSupportDirectory,
+            in: .userDomainMask
+        )[0].appendingPathComponent("Motas", isDirectory: true)
+        let store = SnapshotStore(
+            fileURL: directory.appendingPathComponent(MotasConfiguration.snapshotFilename)
+        )
+        return try? store.load() ?? nil
+    }
+
+    public func diagnosticData(format: DiagnosticExportFormat) -> Data? {
         do {
             let configurations = [
                 DiagnosticConnectorConfiguration(
@@ -241,13 +303,15 @@ final class AppModel: ObservableObject {
                 DiagnosticConnectorConfiguration(
                     id: "9router",
                     enabled: settings.nineRouter.isEnabled,
-                    endpointLabel: EndpointNormalizer.redactedLabel(for: settings.nineRouter.baseURL),
+                    endpointLabel: EndpointNormalizer.redactedLabel(
+                        for: settings.nineRouter.baseURL),
                     enabledSource: sourceLabels.nineRouterEnabled.rawValue
                 ),
                 DiagnosticConnectorConfiguration(
                     id: "cliproxyapi",
                     enabled: settings.cliProxyAPI.isEnabled,
-                    endpointLabel: EndpointNormalizer.redactedLabel(for: settings.cliProxyAPI.baseURL),
+                    endpointLabel: EndpointNormalizer.redactedLabel(
+                        for: settings.cliProxyAPI.baseURL),
                     enabledSource: sourceLabels.cliProxyAPIEnabled.rawValue
                 ),
             ]
@@ -271,8 +335,26 @@ final class AppModel: ObservableObject {
         }
     }
 
+    /// Applies the launch-at-login request. Returns nil on success, or a
+    /// user-presentable message when the installed-app service is unavailable
+    /// (e.g. running from `swift run`). The requested value is persisted
+    /// either way so the installed app honours it.
     @discardableResult
-    func resetMotasData() -> Bool {
+    public func setLaunchAtLogin(_ enabled: Bool) -> String? {
+        do {
+            if enabled {
+                try SMAppService.mainApp.register()
+            } else {
+                try SMAppService.mainApp.unregister()
+            }
+            return nil
+        } catch {
+            return "Launch at login is only available for the installed Motas.app."
+        }
+    }
+
+    @discardableResult
+    public func resetMotasData() -> Bool {
         var failed = false
         do { try settingsStore.delete() } catch { failed = true }
         do { try historyStore.delete() } catch { failed = true }
@@ -280,19 +362,14 @@ final class AppModel: ObservableObject {
             do { try secretStore.removeValue(for: key) } catch { failed = true }
         }
 
-        let fallbackDirectory = FileManager.default.urls(
+        let directory = FileManager.default.urls(
             for: .applicationSupportDirectory,
             in: .userDomainMask
         )[0].appendingPathComponent("Motas", isDirectory: true)
-        let fallbackSnapshot = fallbackDirectory.appendingPathComponent(
+        let snapshotURL = directory.appendingPathComponent(
             MotasConfiguration.snapshotFilename
         )
-        try? FileManager.default.removeItem(at: fallbackSnapshot)
-        if let appGroupStore = try? SnapshotStore(
-            appGroupIdentifier: MotasConfiguration.appGroupIdentifier
-        ) {
-            try? FileManager.default.removeItem(at: appGroupStore.fileURL)
-        }
+        try? FileManager.default.removeItem(at: snapshotURL)
 
         automaticRefreshScheduler.stop()
         settings = .default()
@@ -316,7 +393,8 @@ final class AppModel: ObservableObject {
             history = try historyStore.load()
         } catch {
             history = .init()
-            historyLoadError = "Saved status history could not be loaded. Motas will rebuild it during refresh."
+            historyLoadError =
+                "Saved status history could not be loaded. Motas will rebuild it during refresh."
         }
     }
 
@@ -328,7 +406,8 @@ final class AppModel: ObservableObject {
             try historyStore.save(history)
             historyLoadError = nil
         } catch {
-            lastRefreshError = "Status history could not be saved. Live readiness remains available."
+            lastRefreshError =
+                "Status history could not be saved. Live readiness remains available."
         }
     }
 
@@ -339,22 +418,27 @@ final class AppModel: ObservableObject {
                 persistedSettingsExist = true
             }
         } catch {
-            settingsLoadError = "Saved settings could not be loaded. Motas is using in-memory defaults."
+            settingsLoadError =
+                "Saved settings could not be loaded. Motas is using in-memory defaults."
         }
     }
 
     private func rebuildConnectors() {
+        Task { await quotaCache.setPolicy(policyForSettings(settings)) }
         let resolved = ConnectorConfigurationResolver().resolve(
             settings: settings,
             persistedDocumentExists: persistedSettingsExist,
             environment: environment,
-            secretStore: secretStore
+            secretStore: secretStore,
+            quotaCache: quotaCache
         )
         sourceLabels = resolved.labels
         liveConnectors = EnvironmentConnectorFactory.connectors(resolved: resolved)
         isDemoMode = liveConnectors.isEmpty && !persistedSettingsExist
 
-        let messages = ([settingsLoadError, historyLoadError].compactMap { $0 } + resolved.issues.map(\.message))
+        let messages =
+            ([settingsLoadError, historyLoadError].compactMap { $0 }
+                + resolved.issues.map(\.message))
         configurationError = messages.isEmpty ? nil : messages.joined(separator: " ")
     }
 
@@ -363,20 +447,13 @@ final class AppModel: ObservableObject {
         guard settings.automaticRefreshEnabled, !liveConnectors.isEmpty else { return }
 
         automaticRefreshScheduler.start(
-            interval: .seconds(Int(MotasConfiguration.defaultAutomaticRefreshInterval))
+            interval: .seconds(Int(settings.automaticRefreshInterval))
         ) { [weak self] in
             await self?.refresh()
         }
     }
 
     private func persistSnapshot() {
-        if let appGroupStore = try? SnapshotStore(
-            appGroupIdentifier: MotasConfiguration.appGroupIdentifier
-        ), (try? appGroupStore.save(snapshot)) != nil {
-            lastRefreshError = nil
-            return
-        }
-
         do {
             let directory = FileManager.default.urls(
                 for: .applicationSupportDirectory,

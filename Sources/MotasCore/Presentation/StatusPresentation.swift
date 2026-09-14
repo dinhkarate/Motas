@@ -32,6 +32,36 @@ public enum StatusPresentation {
         }
     }
 
+    /// The lowest enforced quota fraction across primary/fallback providers
+    /// and proxies. Informational sources are excluded, matching the
+    /// readiness rules. Ties break by window id ascending for determinism.
+    public static func tightestWindow(
+        providers: [ProviderStatus],
+        proxies: [ProxyStatus]
+    ) -> (name: String, remainingFraction: Double, resetsAt: Date?)? {
+        var best: (name: String, remainingFraction: Double, resetsAt: Date?, id: String)?
+        func consider(_ windows: [QuotaWindow]) {
+            for window in windows where window.isEnforced {
+                guard let fraction = window.remainingFraction else { continue }
+                if let current = best {
+                    if fraction > current.remainingFraction { continue }
+                    if fraction == current.remainingFraction, window.id >= current.id {
+                        continue
+                    }
+                }
+                best = (window.name, fraction, window.resetsAt, window.id)
+            }
+        }
+        for provider in providers where provider.role == .primary || provider.role == .fallback {
+            consider(provider.quotaWindows)
+        }
+        for proxy in proxies where proxy.role == .primary || proxy.role == .fallback {
+            consider(proxy.quotaWindows)
+        }
+        guard let best else { return nil }
+        return (best.name, best.remainingFraction, best.resetsAt)
+    }
+
     public static func remediation(
         health: OperationalHealth,
         quality: DataQuality
