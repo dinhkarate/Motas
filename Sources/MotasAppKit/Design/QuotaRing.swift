@@ -35,7 +35,6 @@ public struct QuotaRing: View {
                         style: StrokeStyle(lineWidth: lineWidth, lineCap: .round)
                     )
                     .rotationEffect(.degrees(-90))
-                    .animation(.smooth(duration: 0.25), value: fraction)
             }
             if showsLabel, let fraction {
                 VStack(spacing: 0) {

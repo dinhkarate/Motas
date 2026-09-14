@@ -7,57 +7,77 @@ import SwiftUI
 /// colour when low or not ready.
 @MainActor
 public enum MenuBarIcon {
+    /// Pure-SwiftUI status-bar label. MUST be used for the live
+    /// `MenuBarExtra` label: rasterizing with `ImageRenderer` inside the
+    /// label closure runs in the AttributeGraph evaluation context (no
+    /// subgraph) and crashes with `External<()>`.
+    public struct Label: View {
+        let fraction: Double?
+        let state: ReadinessState
+        let showsPercentage: Bool
+        let tintWhenLow: Bool
+
+        public init(
+            fraction: Double?,
+            state: ReadinessState,
+            showsPercentage: Bool,
+            tintWhenLow: Bool
+        ) {
+            self.fraction = fraction
+            self.state = state
+            self.showsPercentage = showsPercentage
+            self.tintWhenLow = tintWhenLow
+        }
+
+        public var body: some View {
+            HStack(spacing: 3) {
+                if fraction != nil {
+                    QuotaRing(fraction: fraction, diameter: 14, lineWidth: 2.5, showsLabel: false)
+                } else {
+                    Image(systemName: state.symbolName)
+                        .font(.system(size: 13, weight: .semibold))
+                }
+                if showsPercentage, let fraction {
+                    Text("\(Int((fraction * 100).rounded()))%")
+                        .font(.system(size: 11, weight: .medium))
+                        .monospacedDigit()
+                }
+            }
+            .foregroundStyle(MenuBarIcon.color(
+                fraction: fraction, state: state, tintWhenLow: tintWhenLow))
+            .frame(height: 18)
+        }
+    }
+
+    static func color(
+        fraction: Double?,
+        state: ReadinessState,
+        tintWhenLow: Bool
+    ) -> Color {
+        let monochrome =
+            !tintWhenLow
+            || ((fraction ?? 1) >= MotasTheme.cautionFraction && state == .ready)
+        return monochrome ? Color.primary : (fraction.map(MotasTheme.quotaTint) ?? state.tint)
+    }
+
     public static func image(
         fraction: Double?,
         state: ReadinessState,
         showsPercentage: Bool,
         tintWhenLow: Bool
     ) -> NSImage {
-        let monochrome =
-            !tintWhenLow
-            || ((fraction ?? 1) >= MotasTheme.cautionFraction && state == .ready)
-        let color: Color =
-            monochrome
-            ? Color.primary
-            : (fraction.map(MotasTheme.quotaTint) ?? state.tint)
-
-        let ring = QuotaRing(fraction: fraction, diameter: 14, lineWidth: 2.5, showsLabel: false)
-        let label: AnyView
-        if showsPercentage, let fraction {
-            label = AnyView(
-                Text("\(Int((fraction * 100).rounded()))%")
-                    .font(.system(size: 11, weight: .medium))
-                    .monospacedDigit()
-            )
-        } else {
-            label = AnyView(EmptyView())
-        }
-        let content: AnyView
-        if fraction != nil {
-            content = AnyView(
-                HStack(spacing: 3) {
-                    ring
-                    label
-                })
-        } else {
-            content = AnyView(
-                HStack(spacing: 3) {
-                    Image(systemName: state.symbolName)
-                        .font(.system(size: 13, weight: .semibold))
-                    label
-                }
-            )
-        }
-
-        let tinted =
-            content
-            .foregroundStyle(color)
-            .frame(height: 18)
+        let tinted = Label(
+            fraction: fraction,
+            state: state,
+            showsPercentage: showsPercentage,
+            tintWhenLow: tintWhenLow
+        )
         let renderer = ImageRenderer(content: tinted)
         renderer.scale = NSScreen.main?.backingScaleFactor ?? 2
         let nsImage = renderer.nsImage ?? NSImage(size: NSSize(width: 18, height: 18))
         nsImage.size = NSSize(width: nsImage.size.width / renderer.scale, height: 18)
-        nsImage.isTemplate = monochrome
+        nsImage.isTemplate = !tintWhenLow
+            || ((fraction ?? 1) >= MotasTheme.cautionFraction && state == .ready)
         return nsImage
     }
 }

@@ -4,32 +4,36 @@ import ServiceManagement
 import SwiftUI
 
 public struct MotasApp: App {
+    @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
     @StateObject private var model = AppModel()
 
-    public init() {
-        NSApplication.shared.setActivationPolicy(.accessory)
-    }
+    public init() {}
 
     public var body: some Scene {
         MenuBarExtra {
             PanelView(model: model)
         } label: {
-            Image(
-                nsImage: MenuBarIcon.image(
-                    fraction: StatusPresentation.tightestWindow(
-                        providers: model.snapshot.providers,
-                        proxies: model.snapshot.proxies
-                    )?.remainingFraction,
-                    state: model.snapshot.readiness.state,
-                    showsPercentage: model.settings.showMenuBarPercentage,
-                    tintWhenLow: model.settings.tintMenuBarWhenLow
-                ))
+            MenuBarIcon.Label(
+                fraction: StatusPresentation.tightestWindow(
+                    providers: model.snapshot.providers,
+                    proxies: model.snapshot.proxies
+                )?.remainingFraction,
+                state: model.snapshot.readiness.state,
+                showsPercentage: model.settings.showMenuBarPercentage,
+                tintWhenLow: model.settings.tintMenuBarWhenLow
+            )
         }
         .menuBarExtraStyle(.window)
 
         Settings {
-            SettingsView(model: model)
+            Text("probe-settings")
         }
+    }
+}
+
+final class AppDelegate: NSObject, NSApplicationDelegate {
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        NSApplication.shared.setActivationPolicy(.accessory)
     }
 }
 
@@ -139,7 +143,8 @@ public final class AppModel: ObservableObject {
                 scenarioIndex = (scenarioIndex + 1) % scenarios.count
                 nextSnapshot = scenarios[scenarioIndex](Date())
             } else if !connectors.isEmpty {
-                nextSnapshot = await ConnectorRefresher(connectors: connectors).refresh(trigger: trigger)
+                nextSnapshot = await ConnectorRefresher(connectors: connectors).refresh(
+                    trigger: trigger)
             } else {
                 nextSnapshot = MockData.unknownSnapshot()
             }
