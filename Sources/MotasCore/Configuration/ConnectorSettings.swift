@@ -90,6 +90,7 @@ public struct MotasSettings: Sendable, Equatable {
     public var showMenuBarPercentage: Bool
     public var tintMenuBarWhenLow: Bool
     public var launchAtLogin: Bool
+    public var compactPanel: Bool
     public var claudeCode: ClaudeCodeSettings
     public var nineRouter: NineRouterSettings
     public var cliProxyAPI: CLIProxyAPISettings
@@ -103,6 +104,7 @@ public struct MotasSettings: Sendable, Equatable {
         showMenuBarPercentage: Bool = true,
         tintMenuBarWhenLow: Bool = true,
         launchAtLogin: Bool = false,
+        compactPanel: Bool = true,
         claudeCode: ClaudeCodeSettings = .default(),
         nineRouter: NineRouterSettings = .default(),
         cliProxyAPI: CLIProxyAPISettings = .default()
@@ -115,6 +117,7 @@ public struct MotasSettings: Sendable, Equatable {
         self.showMenuBarPercentage = showMenuBarPercentage
         self.tintMenuBarWhenLow = tintMenuBarWhenLow
         self.launchAtLogin = launchAtLogin
+        self.compactPanel = compactPanel
         self.claudeCode = claudeCode
         self.nineRouter = nineRouter
         self.cliProxyAPI = cliProxyAPI
@@ -164,6 +167,7 @@ extension MotasSettings: Codable {
         case showMenuBarPercentage
         case tintMenuBarWhenLow
         case launchAtLogin
+        case compactPanel
         case claudeCode
         case nineRouter
         case cliProxyAPI
@@ -187,6 +191,7 @@ extension MotasSettings: Codable {
         tintMenuBarWhenLow =
             (try? container.decodeIfPresent(Bool.self, forKey: .tintMenuBarWhenLow)) ?? true
         launchAtLogin = (try? container.decodeIfPresent(Bool.self, forKey: .launchAtLogin)) ?? false
+        compactPanel = (try? container.decodeIfPresent(Bool.self, forKey: .compactPanel)) ?? true
         claudeCode =
             (try? container.decodeIfPresent(ClaudeCodeSettings.self, forKey: .claudeCode))
             ?? .default()
@@ -208,6 +213,7 @@ extension MotasSettings: Codable {
         try container.encode(showMenuBarPercentage, forKey: .showMenuBarPercentage)
         try container.encode(tintMenuBarWhenLow, forKey: .tintMenuBarWhenLow)
         try container.encode(launchAtLogin, forKey: .launchAtLogin)
+        try container.encode(compactPanel, forKey: .compactPanel)
         try container.encode(claudeCode, forKey: .claudeCode)
         try container.encode(nineRouter, forKey: .nineRouter)
         try container.encode(cliProxyAPI, forKey: .cliProxyAPI)

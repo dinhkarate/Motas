@@ -9,6 +9,18 @@ public struct PanelView: View {
     }
 
     public var body: some View {
+        Group {
+            if model.settings.compactPanel {
+                compactBody
+            } else {
+                detailedBody
+            }
+        }
+        .padding(MotasTheme.panelPadding)
+        .frame(width: MotasTheme.panelWidth)
+    }
+
+    private var detailedBody: some View {
         VStack(alignment: .leading, spacing: 12) {
             hero
             if model.snapshot.providers.isEmpty, model.snapshot.proxies.isEmpty,
@@ -26,8 +38,131 @@ public struct PanelView: View {
                     .foregroundStyle(.red)
             }
         }
-        .padding(MotasTheme.panelPadding)
-        .frame(width: MotasTheme.panelWidth)
+    }
+
+    /// Compact route: small hero (ring + title + tightest line), one row per
+    /// source (dot, name, tightest %), slim footer. No tiles, no remediation,
+    /// no Accounts disclosure, no quit button.
+    private var compactBody: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            compactHero
+            if model.snapshot.providers.isEmpty, model.snapshot.proxies.isEmpty,
+                !model.isDemoMode
+            {
+                emptyState
+            } else {
+                VStack(alignment: .leading, spacing: 2) {
+                    ForEach(model.snapshot.providers) { provider in
+                        compactRow(
+                            name: provider.name,
+                            health: provider.health,
+                            fraction: StatusPresentation.tightestWindow(
+                                providers: [provider], proxies: [])
+                                .map(\.remainingFraction)
+                        )
+                    }
+                    ForEach(model.snapshot.proxies) { proxy in
+                        compactRow(
+                            name: proxy.name,
+                            health: proxy.health,
+                            fraction: StatusPresentation.tightestWindow(
+                                providers: [], proxies: [proxy])
+                                .map(\.remainingFraction)
+                        )
+                    }
+                }
+            }
+            Divider()
+            compactFooter
+            if let error = model.lastRefreshError {
+                Text(error)
+                    .font(.caption)
+                    .foregroundStyle(.red)
+            }
+        }
+    }
+
+    private var compactHero: some View {
+        let tightest = StatusPresentation.tightestWindow(
+            providers: model.snapshot.providers,
+            proxies: model.snapshot.proxies
+        )
+        return HStack(spacing: 10) {
+            QuotaRing(
+                fraction: tightest?.remainingFraction,
+                diameter: 44, lineWidth: 5, showsLabel: false)
+            VStack(alignment: .leading, spacing: 1) {
+                HStack(spacing: 6) {
+                    Text(model.snapshot.readiness.title)
+                        .font(.system(.body, weight: .semibold))
+                    if model.isDemoMode {
+                        Text("DEMO")
+                            .font(.caption2.weight(.bold))
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 2)
+                            .background(Capsule().fill(Color.orange.opacity(0.2)))
+                    }
+                }
+                if let tightest {
+                    Text(
+                        "\(Int((tightest.remainingFraction * 100).rounded()))% · \(tightest.name)"
+                    )
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                }
+            }
+            Spacer()
+        }
+    }
+
+    private func compactRow(name: String, health: OperationalHealth, fraction: Double?) -> some View {
+        HStack(spacing: 8) {
+            Circle()
+                .fill(health.tint)
+                .frame(width: 7, height: 7)
+            Text(name)
+                .font(.callout)
+                .lineLimit(1)
+            Spacer()
+            if let fraction {
+                Text("\(Int((fraction * 100).rounded()))%")
+                    .font(.callout)
+                    .monospacedDigit()
+                    .foregroundStyle(MotasTheme.quotaTint(fraction))
+            } else {
+                Text(health.displayName)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .padding(.vertical, 3)
+    }
+
+    private var compactFooter: some View {
+        HStack(spacing: 8) {
+            Text(
+                "Updated \(StatusPresentation.relativeAge(of: model.snapshot.capturedAt, now: Date()))"
+            )
+            .font(.caption)
+            .foregroundStyle(.secondary)
+            Spacer()
+            if model.isRefreshing {
+                ProgressView()
+                    .controlSize(.small)
+            } else {
+                PanelIconButton(systemName: "arrow.clockwise", help: "Refresh") {
+                    Task { await model.refresh(trigger: .manual) }
+                }
+                .keyboardShortcut("r")
+            }
+            SettingsLink {
+                Image(systemName: "gearshape")
+                    .font(.system(size: 13))
+                    .frame(width: 22, height: 22)
+            }
+            .buttonStyle(.plain)
+            .help("Settings")
+        }
     }
 
     private var hero: some View {
