@@ -27,8 +27,11 @@ jobs:
           EOF
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      - if: secrets.HOMEBREW_TAP_TOKEN != ''
-        run: |
+      - run: |
+          if [ -z "${HOMEBREW_TAP_TOKEN:-}" ]; then
+            echo "HOMEBREW_TAP_TOKEN unset; cask ships as release asset only."
+            exit 0
+          fi
           git clone "https://x-access-token:${HOMEBREW_TAP_TOKEN}@github.com/dinhkarate/homebrew-motas.git" /tmp/tap
           mkdir -p /tmp/tap/Casks
           cp packaging/homebrew/motas.rb /tmp/tap/Casks/motas.rb
