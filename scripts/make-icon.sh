@@ -2,13 +2,7 @@
 set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$REPO_ROOT"
-
-SIZE=1024
-OUT="$1"
-if [ -z "${OUT:-}" ]; then
-    echo "usage: make-icon.sh <output-1024.png>" >&2
-    exit 2
-fi
+OUT="${1:-dist/AppIcon-1024.png}"
 
 swift run MotasGallery -- --icon "$OUT"
 
