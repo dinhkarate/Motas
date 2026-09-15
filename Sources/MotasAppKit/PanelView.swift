@@ -57,8 +57,9 @@ public struct PanelView: View {
                             name: provider.name,
                             health: provider.health,
                             fraction: StatusPresentation.tightestWindow(
-                                providers: [provider], proxies: [])
-                                .map(\.remainingFraction)
+                                providers: [provider], proxies: []
+                            )
+                            .map(\.remainingFraction)
                         )
                     }
                     ForEach(model.snapshot.proxies) { proxy in
@@ -66,8 +67,9 @@ public struct PanelView: View {
                             name: proxy.name,
                             health: proxy.health,
                             fraction: StatusPresentation.tightestWindow(
-                                providers: [], proxies: [proxy])
-                                .map(\.remainingFraction)
+                                providers: [], proxies: [proxy]
+                            )
+                            .map(\.remainingFraction)
                         )
                     }
                 }
@@ -87,14 +89,17 @@ public struct PanelView: View {
             providers: model.snapshot.providers,
             proxies: model.snapshot.proxies
         )
+        let tint =
+            tightest.map { MotasTheme.quotaTint($0.remainingFraction) }
+            ?? model.snapshot.readiness.state.tint
         return HStack(spacing: 10) {
             QuotaRing(
                 fraction: tightest?.remainingFraction,
                 diameter: 44, lineWidth: 5, showsLabel: false)
-            VStack(alignment: .leading, spacing: 1) {
+            VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 6) {
                     Text(model.snapshot.readiness.title)
-                        .font(.system(.body, weight: .semibold))
+                        .font(.system(.title3, weight: .bold))
                     if model.isDemoMode {
                         Text("DEMO")
                             .font(.caption2.weight(.bold))
@@ -105,37 +110,48 @@ public struct PanelView: View {
                 }
                 if let tightest {
                     Text(
-                        "\(Int((tightest.remainingFraction * 100).rounded()))% · \(tightest.name)"
+                        "\(Int((tightest.remainingFraction * 100).rounded()))% left · \(tightest.name)\(tightest.resetsAt.map { " · " + (StatusPresentation.resetLabel(for: $0, now: Date()) ?? "") } ?? "")"
                     )
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .font(.callout)
+                    .foregroundStyle(.primary.opacity(0.72))
                 }
             }
             Spacer()
         }
+        .padding(10)
+        .background(
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .fill(tint.opacity(0.10))
+        )
     }
 
-    private func compactRow(name: String, health: OperationalHealth, fraction: Double?) -> some View {
+    private func compactRow(name: String, health: OperationalHealth, fraction: Double?) -> some View
+    {
         HStack(spacing: 8) {
-            Circle()
-                .fill(health.tint)
-                .frame(width: 7, height: 7)
             Text(name)
-                .font(.callout)
+                .font(.system(.callout, weight: .medium))
                 .lineLimit(1)
             Spacer()
             if let fraction {
-                Text("\(Int((fraction * 100).rounded()))%")
-                    .font(.callout)
+                Text("\(Int((fraction * 100).rounded()))% left")
+                    .font(.system(.callout, weight: .semibold))
                     .monospacedDigit()
                     .foregroundStyle(MotasTheme.quotaTint(fraction))
             } else {
-                Text(health.displayName)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                statusPill(health: health)
             }
         }
-        .padding(.vertical, 3)
+        .padding(.vertical, 5)
+        .padding(.horizontal, 2)
+    }
+
+    private func statusPill(health: OperationalHealth) -> some View {
+        Text(health.displayName)
+            .font(.caption2.weight(.semibold))
+            .padding(.horizontal, 8)
+            .padding(.vertical, 3)
+            .background(Capsule().fill(health.pillFill))
+            .foregroundStyle(health.pillText)
     }
 
     private var compactFooter: some View {
@@ -437,6 +453,24 @@ extension OperationalHealth {
         case .healthy: .green
         case .degraded: .orange
         case .exhausted, .unreachable: .red
+        case .unauthorized, .unsupported, .unknown: .secondary
+        }
+    }
+
+    /// High-contrast pill colors: solid tinted fill with white text, except
+    /// neutral states which stay subtle.
+    public var pillFill: Color {
+        switch self {
+        case .healthy: Color(red: 0.13, green: 0.55, blue: 0.26)
+        case .degraded: .orange
+        case .exhausted, .unreachable: .red
+        case .unauthorized, .unsupported, .unknown: Color.primary.opacity(0.14)
+        }
+    }
+
+    public var pillText: Color {
+        switch self {
+        case .healthy, .degraded, .exhausted, .unreachable: .white
         case .unauthorized, .unsupported, .unknown: .secondary
         }
     }
