@@ -15,16 +15,9 @@ jobs:
         with:
           xcode-version: '16.2'
       - run: scripts/make-release.sh ${GITHUB_REF_NAME#v}
-      - run: >
-          gh release create "$GITHUB_REF_NAME"
-          "dist/Motas-${GITHUB_REF_NAME#v}.zip"
-          "dist/Motas-${GITHUB_REF_NAME#v}.zip.sha256"
-          packaging/homebrew/motas.rb
-          --title "$GITHUB_REF_NAME" --notes-file - <<'EOF'
-          Ad-hoc signed, Apple Silicon build. Install with:
-            brew install --cask --no-quarantine dinhkarate/motas/motas
-          If dinhkarate/homebrew-motas was not updated automatically, copy packaging/homebrew/motas.rb to the tap's Casks/motas.rb manually.
-          EOF
+      - run: |
+          printf '%s\n' 'Ad-hoc signed, Apple Silicon build. Install with:' '  brew install --cask --no-quarantine dinhkarate/motas/motas' "If dinhkarate/homebrew-motas was not updated automatically, copy packaging/homebrew/motas.rb to the tap's Casks/motas.rb manually." > /tmp/release-notes.txt
+          gh release create "$GITHUB_REF_NAME" "dist/Motas-${GITHUB_REF_NAME#v}.zip" "dist/Motas-${GITHUB_REF_NAME#v}.zip.sha256" packaging/homebrew/motas.rb --title "$GITHUB_REF_NAME" --notes-file /tmp/release-notes.txt
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       - run: |
