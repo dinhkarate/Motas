@@ -51,25 +51,25 @@ public struct PanelView: View {
             {
                 emptyState
             } else {
-                VStack(alignment: .leading, spacing: 2) {
+                VStack(alignment: .leading, spacing: 1) {
                     ForEach(model.snapshot.providers) { provider in
                         compactRow(
                             name: provider.name,
+                            detail: "Provider",
                             health: provider.health,
                             fraction: StatusPresentation.tightestWindow(
-                                providers: [provider], proxies: []
-                            )
-                            .map(\.remainingFraction)
+                                providers: [provider], proxies: [])?.remainingFraction,
+                            quotaAvailable: !provider.quotaWindows.isEmpty
                         )
                     }
                     ForEach(model.snapshot.proxies) { proxy in
                         compactRow(
                             name: proxy.name,
+                            detail: proxy.endpointLabel ?? "Proxy",
                             health: proxy.health,
                             fraction: StatusPresentation.tightestWindow(
-                                providers: [], proxies: [proxy]
-                            )
-                            .map(\.remainingFraction)
+                                providers: [], proxies: [proxy])?.remainingFraction,
+                            quotaAvailable: !proxy.quotaWindows.isEmpty
                         )
                     }
                 }
@@ -84,6 +84,8 @@ public struct PanelView: View {
         }
     }
 
+    /// Compact still exposes source identity. A proxy without quota is not
+    /// silently rendered as merely healthy: its row says that quota is absent.
     private var compactHero: some View {
         let tightest = StatusPresentation.tightestWindow(
             providers: model.snapshot.providers,
@@ -114,6 +116,10 @@ public struct PanelView: View {
                     )
                     .font(.callout)
                     .foregroundStyle(.primary.opacity(0.72))
+                } else {
+                    Text("No quota window reported")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
                 }
             }
             Spacer()
@@ -125,20 +131,38 @@ public struct PanelView: View {
         )
     }
 
-    private func compactRow(name: String, health: OperationalHealth, fraction: Double?) -> some View
-    {
+    private func compactRow(
+        name: String,
+        detail: String,
+        health: OperationalHealth,
+        fraction: Double?,
+        quotaAvailable: Bool
+    ) -> some View {
         HStack(spacing: 8) {
-            Text(name)
-                .font(.system(.callout, weight: .medium))
-                .lineLimit(1)
+            Circle()
+                .fill(health.tint)
+                .frame(width: 7, height: 7)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(name)
+                    .font(.system(.callout, weight: .medium))
+                    .lineLimit(1)
+                Text(detail)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
             Spacer()
             if let fraction {
                 Text("\(Int((fraction * 100).rounded()))% left")
                     .font(.system(.callout, weight: .semibold))
                     .monospacedDigit()
                     .foregroundStyle(MotasTheme.quotaTint(fraction))
-            } else {
+            } else if quotaAvailable {
                 statusPill(health: health)
+            } else {
+                Text(health == .unreachable ? "Offline" : "Connected · no quota")
+                    .font(.caption2.weight(.medium))
+                    .foregroundStyle(health == .unreachable ? .red : .secondary)
             }
         }
         .padding(.vertical, 5)
