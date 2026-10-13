@@ -45,3 +45,23 @@ disabled accounts are ignored. Menu bar shows the lowest pool.
 - `Tests/MotasCoreTests/Fixtures/live/` — sanitized real captures
   (`scripts/dev/capture-live.py` → `scripts/dev/sanitize-fixtures.py`).
 - `LiveTests` hit real proxies when `MOTAS_LIVE=1`.
+
+## Keychain without a Developer ID
+
+Motas is ad-hoc signed, so every item's partition is `cdhash:<build>`
+(securityd only issues `teamid:` partitions to Apple-issued certificates; a
+self-signed certificate does not help, and the data-protection keychain needs
+a provisioned Team ID). Consequences and handling:
+
+- After each update macOS asks once to let Motas read its credentials.
+  Background refreshes read with `SecKeychainSetUserInteractionAllowed(false)`
+  (the flag the file-based login keychain actually honors), get
+  `errSecAuthFailed` in milliseconds, and report `needsKeychainAccess`; the
+  panel's **Allow…** button performs the interactive read off the main thread.
+  "Always Allow" adds the new cdhash, so reads stay silent until the next update.
+- Successful reads are cached for the launch.
+- A newer build can `SecItemUpdate` an older build's item but not delete it
+  (`errSecInvalidOwnerEdit`), so writes update in place and removal scrubs the
+  value before deleting.
+- Items must be created by Motas itself: items made with `security
+  add-generic-password` carry an `apple-tool:` partition and always prompt.

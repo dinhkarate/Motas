@@ -115,16 +115,28 @@ public final class KeychainSecretStore: SecretStore, @unchecked Sendable {
         }
     }
 
+    /// A newer (ad-hoc, differently signed) build may update an older build's
+    /// item silently but may not delete it (errSecInvalidOwnerEdit), so writes
+    /// update in place and removal scrubs the value before deleting.
     public func setSecret(_ value: String?, for proxy: UUID) throws {
         try lock.withLock {
             cache[proxy] = nil
-            let deleteStatus = SecItemDelete(query(proxy) as CFDictionary)
-            guard deleteStatus == errSecSuccess || deleteStatus == errSecItemNotFound else { throw KeychainError(status: deleteStatus) }
-            guard let value, !value.isEmpty else { return }
-            var q = query(proxy)
-            q[kSecValueData as String] = Data(value.utf8)
-            q[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlock
-            let status = SecItemAdd(q as CFDictionary, nil)
+            guard let value, !value.isEmpty else {
+                _ = SecItemUpdate(query(proxy) as CFDictionary, [kSecValueData as String: Data()] as CFDictionary)
+                let status = SecItemDelete(query(proxy) as CFDictionary)
+                guard [errSecSuccess, errSecItemNotFound, errSecInvalidOwnerEdit].contains(status) else {
+                    throw KeychainError(status: status)
+                }
+                return
+            }
+            let data = Data(value.utf8)
+            var status = SecItemUpdate(query(proxy) as CFDictionary, [kSecValueData as String: data] as CFDictionary)
+            if status == errSecItemNotFound {
+                var q = query(proxy)
+                q[kSecValueData as String] = data
+                q[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlock
+                status = SecItemAdd(q as CFDictionary, nil)
+            }
             guard status == errSecSuccess else { throw KeychainError(status: status) }
             cache[proxy] = value
         }
