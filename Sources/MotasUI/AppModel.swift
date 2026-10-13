@@ -68,6 +68,8 @@ public final class AppModel: ObservableObject {
         }
         pools = Pool.summarize(snapshot)
         history = historyStore.load()
+        // Started here, not from a view: a MenuBarExtra label's .task never runs.
+        if autoRefresh { start() }
     }
 
     public var isConfigured: Bool { settings.proxies.contains(where: \.isEnabled) }
@@ -126,7 +128,18 @@ public final class AppModel: ObservableObject {
 
     // MARK: Settings
 
-    public func secret(for proxy: UUID) -> String? { try? secrets.secret(for: proxy) }
+    public func hasSecret(for proxy: UUID) -> Bool { secrets.hasSecret(for: proxy) }
+
+    public var needsKeychainAccess: Bool { snapshot.proxies.contains { $0.health == .needsKeychainAccess } }
+
+    /// User-initiated: lets macOS show its Keychain prompt (off the main
+    /// thread), then refreshes. Approved secrets stay cached for this launch.
+    public func approveKeychainAccess() async {
+        let ids = settings.proxies.map(\.id)
+        let secrets = self.secrets
+        await Task.detached { for id in ids { _ = try? secrets.secret(for: id, interactive: true) } }.value
+        await refresh()
+    }
 
     /// Saves (adds or replaces) a proxy. `secret == nil` keeps the stored one.
     public func save(_ proxy: ProxyConfig, secret: String?) throws {
@@ -163,6 +176,11 @@ public final class AppModel: ObservableObject {
     }
 
     public func test(_ proxy: ProxyConfig, secret: String?) async -> ProxySnapshot {
-        await monitor.test(proxy, secret: secret ?? self.secret(for: proxy.id))
+        var resolved = secret
+        if resolved == nil {
+            let secrets = self.secrets, id = proxy.id
+            resolved = await Task.detached { try? secrets.secret(for: id, interactive: true) }.value
+        }
+        return await monitor.test(proxy, secret: resolved)
     }
 }

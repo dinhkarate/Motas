@@ -12,7 +12,6 @@ public struct MotasApp: App {
             PanelView(model: model)
         } label: {
             MenuBarLabel(model: model)
-                .task { model.start() }
         }
         .menuBarExtraStyle(.window)
 

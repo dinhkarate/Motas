@@ -136,7 +136,7 @@ struct ProxyEditor: View {
         }
     }
 
-    private var hasStoredSecret: Bool { !isNew && model.secret(for: original.id) != nil }
+    private var hasStoredSecret: Bool { !isNew && model.hasSecret(for: original.id) }
 
     /// Valid http(s) URL with a host; no credentials, query or fragment.
     private var draft: ProxyConfig? {

@@ -61,6 +61,17 @@ public struct PanelView: View {
                     .font(.caption).foregroundStyle(.red)
                     .fixedSize(horizontal: false, vertical: true)
             }
+            if model.needsKeychainAccess {
+                HStack {
+                    Label("Motas needs Keychain access to read proxy credentials.", systemImage: "key.fill")
+                        .font(.caption).fixedSize(horizontal: false, vertical: true)
+                    Spacer()
+                    Button("Allow…") { Task { await model.approveKeychainAccess() } }
+                        .controlSize(.small)
+                }
+                .padding(8)
+                .background(RoundedRectangle(cornerRadius: 8).fill(Color.orange.opacity(0.15)))
+            }
             if model.isConfigured {
                 poolsRow
                 Divider()

@@ -20,7 +20,11 @@ public actor Monitor {
         for (index, config) in enabled.enumerated() {
             let secret: String?
             do {
-                secret = try secrets.secret(for: config.id)
+                secret = try secrets.secret(for: config.id, interactive: false)
+            } catch SecretStoreError.needsApproval {
+                failures[index] = ProxySnapshot(id: config.id, name: config.name, kind: config.kind, fetchedAt: now,
+                                                health: .needsKeychainAccess, accounts: [])
+                continue
             } catch {
                 failures[index] = ProxySnapshot(id: config.id, name: config.name, kind: config.kind, fetchedAt: now,
                                                 health: .failed("Keychain: \(error)"), accounts: [])

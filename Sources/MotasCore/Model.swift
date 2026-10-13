@@ -111,6 +111,8 @@ public struct AccountSnapshot: Codable, Sendable, Hashable, Identifiable {
 public enum ProxyHealth: Codable, Sendable, Hashable {
     case ok
     case unauthorized
+    /// The secret is in Keychain but macOS wants the user to approve access.
+    case needsKeychainAccess
     case unreachable(String)
     case failed(String)
 

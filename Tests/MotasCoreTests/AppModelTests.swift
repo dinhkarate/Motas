@@ -103,6 +103,22 @@ struct AppModelTests {
         #expect(try Data(contentsOf: paths.settings) == Data("{broken".utf8))
     }
 
+    @Test func keychainApprovalNeverBlocksBackgroundRefresh() async throws {
+        let http = testbeds()
+        let secrets = InMemorySecretStore([cpaConfig.id: "mgmt"], needingApproval: [cpaConfig.id])
+        let m = model(http: http, secrets: secrets)
+        try m.update { $0.proxies = [cpaConfig] }
+        await m.refresh()
+        #expect(m.snapshot.proxies.first?.health == .needsKeychainAccess)
+        #expect(m.needsKeychainAccess)
+        #expect(http.requests.isEmpty)            // no request without a credential
+        #expect(m.hasSecret(for: cpaConfig.id))    // settings can tell a secret exists
+
+        await m.approveKeychainAccess()
+        #expect(m.snapshot.proxies.first?.health == .ok)
+        #expect(!m.needsKeychainAccess)
+    }
+
     @Test func notifiesWhenProxyGoesDown() async throws {
         let notifier = RecordingNotifier()
         let down = Flag()

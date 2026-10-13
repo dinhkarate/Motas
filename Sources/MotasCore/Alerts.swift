@@ -55,6 +55,7 @@ extension ProxyHealth {
         switch self {
         case .ok: "Connected"
         case .unauthorized: "Credentials were rejected. Check the key or password in Settings."
+        case .needsKeychainAccess: "Motas needs your approval to read this proxy's credential from Keychain."
         case .unreachable(let reason): "Cannot reach the proxy: \(reason)."
         case .failed(let reason): "The proxy returned an error: \(reason)."
         }

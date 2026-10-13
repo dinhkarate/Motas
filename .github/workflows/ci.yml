@@ -13,8 +13,3 @@ jobs:
       - run: swift build
       - run: swift test
       - run: scripts/build-app.sh 0.0.0-dev
-      - run: swift run MotasGallery /tmp/motas-gallery
-      - uses: actions/upload-artifact@v4
-        with:
-          name: gallery
-          path: /tmp/motas-gallery/
