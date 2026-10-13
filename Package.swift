@@ -8,13 +8,15 @@ let package = Package(
     products: [
         .library(name: "MotasCore", targets: ["MotasCore"]),
         .library(name: "MotasUI", targets: ["MotasUI"]),
+        .library(name: "MotasWidgetKit", targets: ["MotasWidgetKit"]),
         .executable(name: "Motas", targets: ["Motas"]),
     ],
     targets: [
         .target(name: "MotasCore", path: "Sources/MotasCore"),
         .target(name: "MotasUI", dependencies: ["MotasCore"], path: "Sources/MotasUI"),
+        .target(name: "MotasWidgetKit", dependencies: ["MotasCore"], path: "Sources/MotasWidgetKit"),
         .executableTarget(name: "Motas", dependencies: ["MotasUI"], path: "Sources/Motas"),
-        .executableTarget(name: "motas-render", dependencies: ["MotasUI"], path: "Sources/MotasRender"),
+        .executableTarget(name: "motas-render", dependencies: ["MotasUI", "MotasWidgetKit"], path: "Sources/MotasRender"),
         .testTarget(
             name: "MotasCoreTests",
             dependencies: ["MotasCore", "MotasUI"],

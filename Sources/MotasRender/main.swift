@@ -6,7 +6,9 @@
 import AppKit
 import MotasCore
 @testable import MotasUI
+import MotasWidgetKit
 import SwiftUI
+import WidgetKit
 
 @MainActor
 func render<V: View>(_ view: V, _ name: String, to dir: URL, dark: Bool) {
@@ -54,6 +56,13 @@ func run() async {
         render(MenuBarLabel(model: model).padding(4), "menubar", to: out, dark: dark)
         render(SettingsView(model: model), "settings", to: out, dark: dark)
         render(HistoryView(model: model), "history", to: out, dark: dark)
+    }
+    let entry = PoolEntry(date: .now, pools: model.pools, fetchedAt: model.snapshot.fetchedAt,
+                          threshold: model.settings.lowReserveThreshold, problem: nil)
+    for dark in [false, true] {
+        render(PoolWidgetView(entry: entry, family: .systemSmall).padding(16).frame(width: 170, height: 170), "widget-small", to: out, dark: dark)
+        render(PoolWidgetView(entry: entry, family: .systemMedium).padding(16).frame(width: 364, height: 170),
+               "widget-medium", to: out, dark: dark)
     }
     if let first = model.settings.proxies.first {
         let editor = ProxyEditor(model: model, original: first, isNew: false, dismiss: {},
