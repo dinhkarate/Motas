@@ -6,13 +6,18 @@ let package = Package(
     name: "Motas",
     platforms: [.macOS(.v14)],
     products: [
-        .library(name: "MotasCore", targets: ["MotasCore"])
+        .library(name: "MotasCore", targets: ["MotasCore"]),
+        .library(name: "MotasUI", targets: ["MotasUI"]),
+        .executable(name: "Motas", targets: ["Motas"]),
     ],
     targets: [
         .target(name: "MotasCore", path: "Sources/MotasCore"),
+        .target(name: "MotasUI", dependencies: ["MotasCore"], path: "Sources/MotasUI"),
+        .executableTarget(name: "Motas", dependencies: ["MotasUI"], path: "Sources/Motas"),
+        .executableTarget(name: "motas-render", dependencies: ["MotasUI"], path: "Sources/MotasRender"),
         .testTarget(
             name: "MotasCoreTests",
-            dependencies: ["MotasCore"],
+            dependencies: ["MotasCore", "MotasUI"],
             path: "Tests/MotasCoreTests",
             resources: [.copy("Fixtures")]
         ),

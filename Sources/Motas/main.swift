@@ -1,0 +1,3 @@
+import MotasUI
+
+MotasApp.main()

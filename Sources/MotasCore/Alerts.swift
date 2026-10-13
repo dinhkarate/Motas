@@ -1,6 +1,6 @@
 import Foundation
 
-public struct Alert: Sendable, Hashable {
+public struct QuotaAlert: Sendable, Hashable {
     public enum Kind: Sendable, Hashable {
         case poolLow(Provider)
         case poolRecovered(Provider)
@@ -17,9 +17,9 @@ public struct Alert: Sendable, Hashable {
 /// previous and current snapshots. Pure: delivery happens in the app.
 /// Only transitions alert — a pool that stays low does not re-notify.
 public enum AlertRules {
-    public static func alerts(previous: Snapshot?, current: Snapshot, threshold: Double) -> [Alert] {
+    public static func alerts(previous: Snapshot?, current: Snapshot, threshold: Double) -> [QuotaAlert] {
         guard let previous, !previous.proxies.isEmpty else { return [] }
-        var alerts: [Alert] = []
+        var alerts: [QuotaAlert] = []
 
         let before = Dictionary(uniqueKeysWithValues: Pool.summarize(previous).map { ($0.provider, $0) })
         for pool in Pool.summarize(current) {
@@ -30,9 +30,9 @@ public enum AlertRules {
                 if let reset = pool.nextReset {
                     body += " Next reset \(reset.formatted(.relative(presentation: .named)))."
                 }
-                alerts.append(Alert(kind: .poolLow(pool.provider), title: "\(pool.provider.displayName) quota low", body: body))
+                alerts.append(QuotaAlert(kind: .poolLow(pool.provider), title: "\(pool.provider.displayName) quota low", body: body))
             } else if then < threshold, now >= threshold {
-                alerts.append(Alert(kind: .poolRecovered(pool.provider), title: "\(pool.provider.displayName) quota recovered",
+                alerts.append(QuotaAlert(kind: .poolRecovered(pool.provider), title: "\(pool.provider.displayName) quota recovered",
                                     body: "\(pool.provider.displayName) pool is back to \(percent)%."))
             }
         }
@@ -41,9 +41,9 @@ public enum AlertRules {
         for proxy in current.proxies {
             guard let old = oldProxies[proxy.id] else { continue }
             if old.health.isOK, !proxy.health.isOK {
-                alerts.append(Alert(kind: .proxyDown(proxy.id), title: "\(proxy.name) unavailable", body: proxy.health.summary))
+                alerts.append(QuotaAlert(kind: .proxyDown(proxy.id), title: "\(proxy.name) unavailable", body: proxy.health.summary))
             } else if !old.health.isOK, proxy.health.isOK {
-                alerts.append(Alert(kind: .proxyRecovered(proxy.id), title: "\(proxy.name) is back", body: "Quota monitoring resumed."))
+                alerts.append(QuotaAlert(kind: .proxyRecovered(proxy.id), title: "\(proxy.name) is back", body: "Quota monitoring resumed."))
             }
         }
         return alerts
