@@ -1,0 +1,18 @@
+{
+  "limitReached": false,
+  "plan": "free",
+  "quotas": {
+    "session": {
+      "remaining": 0,
+      "resetAt": "2026-10-15T06:46:08.000Z",
+      "total": 100,
+      "unlimited": false,
+      "used": 100
+    }
+  },
+  "resetCredits": {
+    "availableCount": 0
+  },
+  "reviewLimitReached": false,
+  "sparkLimitReached": false
+}
