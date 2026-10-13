@@ -1,10 +1,42 @@
 # Motas
 
-**Motas = Mac + Quota**
+**Motas = Mac + Quota.** A native macOS menu bar app that shows the AI
+subscription quota held by your **remote AI proxies** — every account on every
+server, in one place.
 
-Motas is a native macOS menu bar app that reads AI quota from your own proxy stack — CLIProxyAPI, 9Router, Claude Code — and shows it as a quota ring, per-window bars, and one conservative readiness state. It answers "can I start a long coding session right now?" without asking for provider credentials.
+Tools like CodexBar read the accounts logged in on *this* Mac. Motas reads the
+proxies you run for a team or a fleet: CLIProxyAPI and 9Router today,
+OmniRoute and new-api next.
 
-![Motas panel showing quota ring and per-window bars](docs/images/ready-light.png)
+- **Menu bar:** the lowest pool reserve, e.g. `Codex 64%`, with a warning
+  sign when a pool runs low or a proxy is unreachable.
+- **Panel:** proxy → provider → account, each window with its real label
+  (5-hour, weekly, 30-day…), remaining % and reset time.
+- **Notifications** when a pool crosses your threshold or a proxy goes down
+  or comes back.
+- **Widget** with the lowest pool, and a **7-day history** chart.
+
+Motas never invents a number: an account whose provider exposes no figures is
+shown as unknown, a failed read counts as empty, and with no proxy configured
+the app shows an empty state — there is no demo mode.
+
+## How it reads each proxy
+
+| Proxy | Credential | What Motas calls |
+|---|---|---|
+| [CLIProxyAPI](https://github.com/router-for-me/CLIProxyAPI) | management key (`management.allow-remote: true` for remote URLs) | `GET /v0/management/auth-files`, then `POST /v0/management/api-call` per account — the proxy calls the provider's usage URL with that account's own token |
+| [9Router](https://github.com/decolua/9router) | dashboard password | `POST /api/auth/login`, `GET /api/providers`, `GET /api/usage/{id}` |
+
+Per-account quota through CLIProxyAPI is supported for Codex, Antigravity and
+Claude. Motas does **not** use CLIProxyAPI's `/quota/fetch` (it returns 501
+for built-in providers without a plugin) or `/usage-queue` (reading it deletes
+records), and never calls reset, switch, delete or config routes. Asking a
+proxy for usage may make it refresh that account's token — the proxy owns
+those tokens, so that is safe.
+
+Credentials live only in the macOS Keychain. Settings
+(`~/Library/Application Support/Motas/settings.json`), history and the shared
+snapshot contain URLs, names and numbers only.
 
 ## Install
 
@@ -12,61 +44,33 @@ Motas is a native macOS menu bar app that reads AI quota from your own proxy sta
 brew install --cask --no-quarantine dinhkarate/motas/motas
 ```
 
-Motas is ad-hoc signed, not notarized, hence `--no-quarantine`.
+Motas is not notarized, hence `--no-quarantine`.
 
 ## Build from source
 
+Requires macOS 14+ and Swift 6.
+
 ```bash
 swift build
-swift test
-swift run Motas
-scripts/build-app.sh 0.1.0   # dist/Motas.app, Apple Silicon
+swift test                      # parsers and app model, against fixtures captured from real proxies
+scripts/build-app.sh 0.2.0      # dist/Motas.app
 ```
 
-Requirements: macOS 14+, Swift 6+. Command Line Tools suffice; full Xcode is not needed (and the old WidgetKit widget is gone).
+Live checks against your own proxies (optional):
 
-`swift run Motas` launches the menu bar app. On first launch with no configured connector it starts in demo mode; save Settings to configure real monitoring.
-
-## Connector setup
-
-- **CLIProxyAPI** (default `http://localhost:8317`): enable in Settings → Sources, enter the endpoint, put the management key in the Keychain field. Motas probes `POST /v0/management/quota/fetch` per account. Accounts whose provider plugin exposes no quota endpoint (HTTP 501) show health only — that is expected.
-- **9Router** (default `http://localhost:20128`): enter the endpoint plus a dashboard or CLI token. Motas probes `GET /api/usage/{connectionId}` per active connection. Never appends `?force=1`.
-- **Claude Code**: configure `scripts/motas-claude-statusline` as Claude Code's `statusLine` command, then set `MOTAS_CLAUDE_CODE_ENABLED=1`. See [Claude Code connector setup](docs/connectors/claude-code.md).
-
-Environment overrides (development only, take precedence, never imported into Keychain):
-
-```text
-MOTAS_CLAUDE_CODE_ENABLED
-MOTAS_CLAUDE_STATUS_FILE
-MOTAS_9ROUTER_URL / MOTAS_9ROUTER_DASHBOARD_TOKEN / MOTAS_9ROUTER_CLI_TOKEN
-MOTAS_CLIPROXYAPI_URL / MOTAS_CLIPROXYAPI_KEY / MOTAS_CLIPROXYAPI_MANAGEMENT_KEY
+```bash
+MOTAS_LIVE=1 MOTAS_CPA_URL=… MOTAS_CPA_KEY=… MOTAS_9R_URL=… MOTAS_9R_PASSWORD=… \
+  swift test --filter LiveTests
 ```
 
-Non-secret Settings live in `~/Library/Application Support/Motas/settings.json`. Read [Settings, Keychain and refresh architecture](docs/architecture/settings-keychain-auto-refresh.md) for storage, precedence, and refresh behavior.
+`scripts/dev/capture-live.py` and `scripts/dev/sanitize-fixtures.py` record new
+fixtures from a live proxy and strip emails, ids and tokens before they are
+committed.
 
-## Privacy boundary
-
-- Proxy credentials live only in Keychain (or dev-process environment).
-- The persisted snapshot, history, logs and diagnostics contain normalized percentages and masked labels only — no keys, no tokens, no raw responses.
-- Every proxy call is read-only. Motas never touches reset, switch, start or stop endpoints.
-- Motas never invents a percentage, a reset time, or a green state. No data means partial, not healthy.
+See [docs/architecture.md](docs/architecture.md) for the data flow, the pool
+rules and what was learned from real responses. The previous implementation is
+kept under `legacy/` for reference.
 
 ## License
 
 MIT. See [LICENSE](LICENSE).
-
-## Architecture
-
-- [Goal and non-negotiables](GOAL.md)
-- [Normalized status model](docs/architecture/normalized-status-model.md)
-- [Readiness rules](docs/architecture/readiness-rules.md)
-- [Settings, Keychain and refresh](docs/architecture/settings-keychain-auto-refresh.md)
-- [Readiness notifications](docs/architecture/notifications.md)
-- [Bounded status history](docs/architecture/status-history.md)
-- [Sanitized diagnostics](docs/architecture/diagnostics.md)
-- [Truthful status presentation](docs/architecture/status-presentation.md)
-- [Guided setup and connection testing](docs/architecture/connection-testing.md)
-- [Claude Code connector](docs/connectors/claude-code.md)
-- [9Router connector](docs/connectors/9router.md)
-- [CLIProxyAPI connector](docs/connectors/cliproxyapi.md)
-- [Frozen v1 scope](docs/product/v1-scope.md)
