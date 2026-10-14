@@ -387,7 +387,7 @@ struct Banner: View {
             Image(systemName: symbol).foregroundStyle(tint)
             Text(text).font(.caption).fixedSize(horizontal: false, vertical: true)
             Spacer(minLength: 4)
-            if let action { Button(action.0, action: action.1).controlSize(.small) }
+            if let action { Button(action.0, action: action.1).controlSize(.small).accessibilityLabel(action.0) }
         }
         .padding(10)
         .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(tint.opacity(0.12)))
@@ -411,6 +411,7 @@ struct Pill: View {
             .overlay(Capsule().strokeBorder(selected ? Color.accentColor.opacity(0.6) : .clear, lineWidth: 1))
         }
         .buttonStyle(.plain)
+        .accessibilityLabel(title)
     }
 }
 
@@ -433,6 +434,7 @@ struct FooterButton: View {
                 .background(RoundedRectangle(cornerRadius: 6).fill(Color.primary.opacity(hovering ? 0.08 : 0)))
         }
         .buttonStyle(.plain)
+        .accessibilityLabel(title)
         .onHover { hovering = $0 }
     }
 }
@@ -457,6 +459,7 @@ struct IconButton: View {
         }
         .buttonStyle(.plain)
         .help(help)
+        .accessibilityLabel(help)
         .onHover { hovering = $0 }
     }
 }
