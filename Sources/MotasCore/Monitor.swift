@@ -56,7 +56,8 @@ public actor Monitor {
         let all = fetched.merging(failures) { a, _ in a }
         let snapshot = Snapshot(fetchedAt: now, proxies: all.keys.sorted().map { all[$0]! })
         let summary = snapshot.proxies.map { "\($0.name)=\($0.health.logLabel)/\($0.accounts.count)" }.joined(separator: " ")
-        Self.log.info("refresh \(snapshot.proxies.count) proxies in \(ContinuousClock.now - started): \(summary, privacy: .public)")
+        let elapsed = (ContinuousClock.now - started).formatted(.units(allowed: [.seconds, .milliseconds], width: .narrow))
+        Self.log.notice("refresh \(snapshot.proxies.count) proxies in \(elapsed, privacy: .public): \(summary, privacy: .public)")
         return snapshot
     }
 
