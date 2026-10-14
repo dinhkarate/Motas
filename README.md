@@ -1,3 +1,5 @@
+<img src="docs/images/icon.png" width="96" alt="Motas icon">
+
 # Motas
 
 **Motas = Mac + Quota.** A native macOS menu bar app that shows the AI

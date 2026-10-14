@@ -63,7 +63,7 @@ cat > "$APPEX/Contents/Info.plist" <<EOF
 EOF
 plutil -lint "$APP/Contents/Info.plist" "$APPEX/Contents/Info.plist" >/dev/null
 
-if [ ! -f dist/AppIcon.icns ]; then
+if [ ! -f dist/AppIcon.icns ] || [ scripts/dev/make-icon.swift -nt dist/AppIcon.icns ]; then
     scripts/make-icon.sh
 fi
 cp dist/AppIcon.icns "$APP/Contents/Resources/"
