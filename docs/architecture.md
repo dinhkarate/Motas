@@ -65,3 +65,16 @@ a provisioned Team ID). Consequences and handling:
   value before deleting.
 - Items must be created by Motas itself: items made with `security
   add-generic-password` carry an `apple-tool:` partition and always prompt.
+
+## Refresh cadence
+
+Every refresh is logged (`/usr/bin/log show --predicate 'subsystem == "dev.motas.app"'`):
+duration and per-proxy health. Each proxy has a 60 s deadline so one slow
+server cannot hold a cycle, and Motas opts out of App Nap while monitoring.
+
+Observed on the live run (2026-10-14): ~5 min 20 s between refreshes while the
+display is on; after the display has been off for a while macOS coalesces
+timers and the gap grows to ~16–18 min; the first refresh fires the moment the
+display wakes. Motas accepts this (battery-friendly, data is fresh when the
+user looks); notifications can therefore lag by up to ~17 min while the Mac is
+idle with the display off.
