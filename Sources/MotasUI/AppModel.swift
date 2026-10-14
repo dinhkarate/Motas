@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import MotasCore
 import SwiftUI
@@ -137,6 +138,9 @@ public final class AppModel: ObservableObject {
     public func approveKeychainAccess() async {
         let ids = settings.proxies.map(\.id)
         let secrets = self.secrets
+        // A menu bar app is not frontmost once its panel closes, and the
+        // SecurityAgent prompt then opens behind other windows. Activate first.
+        NSApplication.shared.activate(ignoringOtherApps: true)
         await Task.detached { for id in ids { _ = try? secrets.secret(for: id, interactive: true) } }.value
         await refresh()
     }

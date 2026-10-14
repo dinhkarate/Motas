@@ -22,7 +22,8 @@ follow CodexBar's rule: read existing tokens read-only, never refresh them.
 - Panel: proxy → provider → account.
 - Settings that actually open, save to JSON + Keychain, and test a connection.
 - Notifications: pool below threshold, proxy unreachable / unauthorized.
-- WidgetKit widget showing pool reserve.
+- WidgetKit widget showing pool reserve (extension assembled by
+  `scripts/build-app.sh`; best effort without Xcode).
 - 7-day history chart.
 
 ## Non-negotiables
@@ -48,4 +49,6 @@ follow CodexBar's rule: read existing tokens read-only, never refresh them.
    unconfigured app shows an empty state.
 4. Notifications fire on threshold / connectivity changes; widget shows pool %;
    7-day history chart works.
-5. `.app` built with Xcode runs 24 h on this Mac without crashing; all tests pass.
+5. `.app` built with SwiftPM (`scripts/build-app.sh`, no Xcode — the user
+   could not install it) runs 24 h on this Mac against the live testbed without
+   crashing; all tests pass.
