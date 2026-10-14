@@ -4,7 +4,8 @@ import MotasCore
 import SwiftUI
 
 public protocol Notifier: Sendable {
-    func deliver(_ alerts: [QuotaAlert]) async
+    @discardableResult
+    func deliver(_ alerts: [QuotaAlert]) async -> NotificationDelivery
 }
 
 /// App state. Everything the UI shows comes from a real `Snapshot`; with no
@@ -177,6 +178,12 @@ public final class AppModel: ObservableObject {
         appError = nil
         guard autoRefresh else { return }
         if intervalChanged || loop == nil { start() } else { Task { await refresh() } }
+    }
+
+    /// Sends a sample alert so the user can check Notification Center settings.
+    public func sendTestNotification() async -> NotificationDelivery {
+        await notifier.deliver([QuotaAlert(kind: .poolLow(.codex), title: "Motas test notification",
+                                           body: "This is what a low-quota or proxy-down alert looks like.")])
     }
 
     public func test(_ proxy: ProxyConfig, secret: String?) async -> ProxySnapshot {

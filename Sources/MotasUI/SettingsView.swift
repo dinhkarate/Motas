@@ -191,6 +191,7 @@ struct TestSummary: View {
 struct GeneralTab: View {
     @ObservedObject var model: AppModel
     @State private var launchAtLogin = SMAppService.mainApp.status == .enabled
+    @State private var notificationResult: String?
     @State private var error: String?
 
     private let intervals: [TimeInterval] = [60, 120, 300, 600, 900, 1800, 3600]
@@ -205,6 +206,12 @@ struct GeneralTab: View {
                 ForEach(thresholds, id: \.self) { Text(Design.percent($0)).tag($0) }
             }
             Toggle("Notifications", isOn: binding(\.notificationsEnabled))
+            HStack {
+                Button("Send Test Notification") {
+                    Task { notificationResult = await model.sendTestNotification().message }
+                }
+                if let notificationResult { Text(notificationResult).font(.caption).foregroundStyle(.secondary) }
+            }
             Toggle("Launch at login", isOn: $launchAtLogin)
                 .onChange(of: launchAtLogin) { _, on in
                     do {

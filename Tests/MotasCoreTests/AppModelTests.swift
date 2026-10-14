@@ -7,7 +7,10 @@ final class RecordingNotifier: Notifier, @unchecked Sendable {
     private let lock = NSLock()
     private var _delivered: [QuotaAlert] = []
     var delivered: [QuotaAlert] { lock.withLock { _delivered } }
-    func deliver(_ alerts: [QuotaAlert]) async { lock.withLock { _delivered += alerts } }
+    func deliver(_ alerts: [QuotaAlert]) async -> NotificationDelivery {
+        lock.withLock { _delivered += alerts }
+        return .delivered
+    }
 }
 
 @MainActor

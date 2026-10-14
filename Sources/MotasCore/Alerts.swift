@@ -11,6 +11,12 @@ public struct QuotaAlert: Sendable, Hashable {
     public var kind: Kind
     public var title: String
     public var body: String
+
+    public init(kind: Kind, title: String, body: String) {
+        self.kind = kind
+        self.title = title
+        self.body = body
+    }
 }
 
 /// Decides which notifications a refresh should produce, by comparing the
