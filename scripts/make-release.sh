@@ -9,7 +9,7 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$REPO_ROOT"
 
 scripts/build-app.sh "$VERSION"
-ditto -c -k --keepParent dist/Motas.app "dist/Motas-${VERSION}.zip"
+ditto -c -k --norsrc --noextattr --keepParent dist/Motas.app "dist/Motas-${VERSION}.zip"
 shasum -a 256 "dist/Motas-${VERSION}.zip" | awk '{print $1}' > "dist/Motas-${VERSION}.zip.sha256"
 
 SHA="$(cat "dist/Motas-${VERSION}.zip.sha256")"
