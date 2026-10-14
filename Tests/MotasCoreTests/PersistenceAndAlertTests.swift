@@ -110,6 +110,19 @@ struct MonitorTests {
         #expect(snap.proxies.allSatisfy { $0.health.isOK })
     }
 
+    @Test func slowProxyIsCutOffAtTheDeadline() async {
+        let slow = StubHTTP { _ in
+            Thread.sleep(forTimeInterval: 2)
+            return (200, Data(), [:])
+        }
+        let started = Date()
+        let snap = await Monitor(http: slow, deadline: .milliseconds(200))
+            .refresh([cpaConfig], secrets: InMemorySecretStore([cpaConfig.id: "mgmt"]))
+        #expect(Date().timeIntervalSince(started) < 1.5)
+        guard case .unreachable(let reason) = snap.proxies.first?.health else { Issue.record("expected unreachable"); return }
+        #expect(reason.hasPrefix("No answer within"))
+    }
+
     @Test func reusesNineRouterSessionUntilSecretChanges() async throws {
         let stub = http()
         let secrets = InMemorySecretStore([nineConfig.id: "pw"])

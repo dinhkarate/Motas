@@ -57,6 +57,16 @@ public enum AlertRules {
 }
 
 extension ProxyHealth {
+    var logLabel: String {
+        switch self {
+        case .ok: "ok"
+        case .unauthorized: "unauthorized"
+        case .needsKeychainAccess: "needsKeychainAccess"
+        case .unreachable(let r): "unreachable(\(r))"
+        case .failed(let r): "failed(\(r))"
+        }
+    }
+
     public var summary: String {
         switch self {
         case .ok: "Connected"

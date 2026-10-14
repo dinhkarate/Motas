@@ -28,6 +28,7 @@ public final class AppModel: ObservableObject {
     let notifier: any Notifier
     private var previous: Snapshot?
     private var loop: Task<Void, Never>?
+    private var activity: NSObjectProtocol?
     private var pendingRefresh = false
     /// False in tests: settings changes do not start the refresh loop.
     let autoRefresh: Bool
@@ -78,6 +79,12 @@ public final class AppModel: ObservableObject {
     public var headline: PoolSummary? { Pool.headline(pools) }
 
     public func start() {
+        // A background menu bar app gets App Nap, which stretches the refresh
+        // timer well past its interval. Opt out (idle system sleep still allowed).
+        if activity == nil {
+            activity = ProcessInfo.processInfo.beginActivity(options: .userInitiatedAllowingIdleSystemSleep,
+                                                             reason: "Monitoring proxy quota")
+        }
         loop?.cancel()
         loop = Task { [weak self] in
             while !Task.isCancelled {
