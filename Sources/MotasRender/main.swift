@@ -11,9 +11,9 @@ import SwiftUI
 import WidgetKit
 
 @MainActor
-func render<V: View>(_ view: V, _ name: String, to dir: URL, dark: Bool) {
+func render<V: View>(_ view: V, _ name: String, to dir: URL, dark: Bool, expanded: Bool = false) {
     let background = dark ? Color(white: 0.16) : Color(white: 0.97)
-    let hosting = NSHostingView(rootView: view.environment(\.motasExpandGroups, true).background(background))
+    let hosting = NSHostingView(rootView: view.environment(\.motasExpandGroups, expanded).background(background))
     hosting.appearance = NSAppearance(named: dark ? .darkAqua : .aqua)
     let size = hosting.fittingSize
     hosting.frame = NSRect(origin: .zero, size: size)
@@ -53,6 +53,7 @@ func run() async {
     await model.refresh()
     for dark in [false, true] {
         render(PanelView(model: model), "panel", to: out, dark: dark)
+        render(PanelView(model: model), "panel-expanded", to: out, dark: dark, expanded: true)
         render(MenuBarLabel(model: model).padding(4), "menubar", to: out, dark: dark)
         render(SettingsView(model: model), "settings", to: out, dark: dark)
         render(HistoryView(model: model), "history", to: out, dark: dark)

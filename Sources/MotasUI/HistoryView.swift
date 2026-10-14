@@ -1,5 +1,6 @@
 import Charts
 import MotasCore
+import MotasDesign
 import SwiftUI
 
 public struct HistoryView: View {
@@ -25,7 +26,7 @@ public struct HistoryView: View {
                 .chartYAxis {
                     AxisMarks(values: [0, 0.25, 0.5, 0.75, 1]) { value in
                         AxisGridLine()
-                        AxisValueLabel { Text(Format.percent(value.as(Double.self) ?? 0)) }
+                        AxisValueLabel { Text(Design.percent(value.as(Double.self) ?? 0)) }
                     }
                 }
                 .chartXScale(domain: Date.now.addingTimeInterval(-7 * 86_400)...Date.now)
@@ -33,6 +34,6 @@ public struct HistoryView: View {
         }
         .padding()
         .frame(minWidth: 560, minHeight: 320)
-        .environment(\.locale, Format.locale)
+        .environment(\.locale, Design.locale)
     }
 }

@@ -1,4 +1,5 @@
 import MotasCore
+import MotasDesign
 import ServiceManagement
 import SwiftUI
 
@@ -14,7 +15,7 @@ public struct SettingsView: View {
         }
         .frame(width: 560, height: 420)
         .padding(.top, 8)
-        .environment(\.locale, Format.locale)
+        .environment(\.locale, Design.locale)
     }
 }
 
@@ -171,11 +172,11 @@ struct TestSummary: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             if result.health.isOK {
-                Label("Connected — \(Format.count(result.accounts.count, "account"))", systemImage: "checkmark.circle.fill").foregroundStyle(.green)
+                Label("Connected — \(Design.count(result.accounts.count, "account"))", systemImage: "checkmark.circle.fill").foregroundStyle(.green)
                 let byProvider = Dictionary(grouping: result.accounts) { $0.provider }.sorted { $0.key < $1.key }
                 ForEach(byProvider, id: \.0) { provider, accounts in
                     let measured = accounts.filter { !$0.quota.windows.isEmpty }.count
-                    Text("\(provider.displayName): \(Format.count(accounts.count, "account")), \(measured) with quota figures")
+                    Text("\(provider.displayName): \(Design.count(accounts.count, "account")), \(measured) with quota figures")
                         .font(.caption).foregroundStyle(.secondary)
                 }
             } else {
@@ -201,7 +202,7 @@ struct GeneralTab: View {
                 ForEach(intervals, id: \.self) { Text("\(Int($0 / 60)) min").tag($0) }
             }
             Picker("Warn below", selection: binding(\.lowReserveThreshold)) {
-                ForEach(thresholds, id: \.self) { Text(Format.percent($0)).tag($0) }
+                ForEach(thresholds, id: \.self) { Text(Design.percent($0)).tag($0) }
             }
             Toggle("Notifications", isOn: binding(\.notificationsEnabled))
             Toggle("Launch at login", isOn: $launchAtLogin)
