@@ -240,7 +240,8 @@ public struct AccountSnapshot: Codable, Sendable, Hashable, Identifiable {
 
 public enum ProxyHealth: Sendable, Hashable {
     case ok
-    /// The secret is in Keychain but macOS wants the user to approve access.
+    /// Keychain did not release the secret: macOS wants the user's approval,
+    /// or the read failed (Allow… retries it). Never a proxy failure.
     case needsKeychainAccess
     case failed(ProxyAccessError)
 

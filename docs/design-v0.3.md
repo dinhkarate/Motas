@@ -1511,3 +1511,45 @@ own the remaining work; do not reach ahead.
   (their accounts are carried). `unhealthyProxies` counts
   `ProxySnapshot.isUnhealthy`, the §9.1 ⚠︎ proxy rule without "while
   online", which a saved file cannot know.
+- S3: Every Keychain read error gives `.needsKeychainAccess`, not only
+  `.needsApproval`. Keychain trouble is Motas's own problem, never a proxy
+  failure, so it never alerts and never counts as unhealthy. Allow… retries
+  the read with a prompt and reports any other error; Monitor logs it.
+- S3: While `legacyKeychainMigrated` is unset, `secret(for:)` also checks,
+  without a prompt, for 0.2 items that still hold a secret. If there are any,
+  or macOS wants approval to tell, it throws `.needsApproval` and caches
+  nothing, so an upgraded 0.2 user is offered Allow… (which migrates) instead
+  of seeing missing credentials. `setSecret` leaves the cache empty in that
+  case for the same reason. Only `approve()` sets the flag.
+- S3: `approve()` fills the cache even when the migration fails, then throws
+  the migration error; the next approval tries the migration again.
+- S3: `KeychainSecretStore(backend:preferences:)` also takes the
+  `UIPreferences` that hold the flag, so tests inject a suite. The CLI passes
+  the app's domain: through the Homebrew symlink `Bundle.main` is the
+  symlink's directory and `.standard` a domain of its own, so the CLI finds
+  Motas.app by resolving its executable's symlinks (also for `version`).
+- S3: An item that is not a v1 blob throws `errSecDecode` and is never
+  overwritten, so a newer build's format survives a downgrade.
+- S3: `SystemKeychain.readLegacy` lists the 0.2 items' attributes, then reads
+  each item: the file-based login keychain returns no data with
+  `kSecMatchLimitAll`.
+- S3: CLI details:
+  - `set-secret` without `--secret-stdin` prompts only on a TTY; with piped
+    stdin and no flag it exits 64.
+  - 64 is a usage error: unknown command or option, a missing or extra
+    argument, a bad `--kind` or `--auth`, a kind/auth mismatch, and an unknown
+    or ambiguous `<id|name>`, which lists the candidates. 65 is a bad value:
+    an empty name, a bad URL, a rejected or missing secret, plain HTTP to a
+    public host with a secret.
+  - Rejected arguments are never echoed, since one may be a mistyped secret.
+  - Commands that touch a secret check Keychain access before changing
+    anything, so a 75 leaves settings.json and the item as they were. `list`
+    shows "locked" instead of failing; `enable` and `disable` never touch
+    Keychain. `--allow-keychain-prompt` is accepted by every proxy command.
+  - `add` writes settings first, then the secret (§7.3); `remove` deletes the
+    secret after the settings change.
+  - `test` exits 69 when offline or unreachable and 1 for any other failure
+    (a rejected token, a missing credential), printing the proxy summary.
+- S3: `ProxyAuth.problem(with:)`, `ProxyAuth.cliTokenRecipe`,
+  `ProxyConfig.baseURL(from:)` and `AccountDescriptor.summary(_:)` live in
+  MotasCore so the Settings editor can share them with the CLI (S5).

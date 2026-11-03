@@ -11,6 +11,7 @@ cask "motas" do
   depends_on macos: :sonoma
 
   app "Motas.app"
+  binary "#{appdir}/Motas.app/Contents/MacOS/Motas", target: "motas"
 
   zap trash: [
     "~/Library/Application Support/Motas",

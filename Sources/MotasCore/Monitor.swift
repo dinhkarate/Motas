@@ -52,17 +52,20 @@ public actor Monitor {
             let state = state(for: config)
             let health: ProxyHealth
             do {
-                let secret = try secrets.secret(for: config.id, interactive: false)
+                let secret = try secrets.secret(for: config.id)
                 if config.auth.needsSecret, secret?.isEmpty != false {
                     health = .failed(.missingCredential)
                 } else {
                     work.append((config, adapter(for: config, secret: secret), state))
                     continue
                 }
-            } catch SecretStoreError.needsApproval {
-                health = .needsKeychainAccess
             } catch {
-                health = .failed(.failed("Keychain: \(error)"))
+                // Never a proxy failure, so never an alert: Allow… retries the
+                // read with a prompt and reports any other error.
+                if error as? SecretStoreError != .needsApproval {
+                    Self.log.error("\(config.name, privacy: .private): Keychain: \(String(describing: error), privacy: .public)")
+                }
+                health = .needsKeychainAccess
             }
             let snapshot = state.carried(health, config: config, now: now)
             snapshots[config.id] = snapshot

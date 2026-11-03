@@ -17,7 +17,7 @@ let package = Package(
         .target(name: "MotasDesign", dependencies: ["MotasCore"], path: "Sources/MotasDesign"),
         .target(name: "MotasUI", dependencies: ["MotasCore", "MotasDesign"], path: "Sources/MotasUI"),
         .target(name: "MotasWidgetKit", dependencies: ["MotasCore", "MotasDesign"], path: "Sources/MotasWidgetKit"),
-        .executableTarget(name: "Motas", dependencies: ["MotasUI"], path: "Sources/Motas"),
+        .executableTarget(name: "Motas", dependencies: ["MotasCore", "MotasUI"], path: "Sources/Motas"),
         .executableTarget(name: "MotasWidget", dependencies: ["MotasWidgetKit"], path: "Sources/MotasWidgetExtension"),
         .executableTarget(name: "motas-render", dependencies: ["MotasUI", "MotasWidgetKit"], path: "Sources/MotasRender"),
         .testTarget(

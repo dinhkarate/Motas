@@ -14,6 +14,21 @@ public enum ProxyAuth: String, Codable, Sendable {
 
     /// A 9Router can run without login, so only a password may be empty.
     var needsSecret: Bool { self != .password }
+
+    /// Derives a 9Router CLI token on its server: the first 16 hex characters
+    /// of sha256(machine-id + "9r-cli-auth" + cli-secret).
+    public static let cliTokenRecipe =
+        #"docker exec <container> sh -c 'd=${DATA_DIR:-$HOME/.9router}; printf %s%s%s "$(cat $d/machine-id)" 9r-cli-auth "$(cat $d/auth/cli-secret)" | sha256sum | cut -c1-16'"#
+
+    /// Why `secret` cannot sign in this way, or nil. Settings and the CLI share
+    /// it. A CLI token is never the 64-hex `auth/cli-secret` it is derived from.
+    public func problem(with secret: String) -> String? {
+        if secret.isEmpty { return "The secret is empty." }
+        guard self == .cliToken, secret.wholeMatch(of: /[0-9a-f]{16}/) == nil else { return nil }
+        return secret.wholeMatch(of: /[0-9a-fA-F]{64}/) != nil
+            ? "This looks like auth/cli-secret, not the token."
+            : "A 9Router CLI token is 16 lowercase hex characters."
+    }
 }
 
 /// A configured remote proxy. Secrets are not stored here; see `SecretStore`.
@@ -44,6 +59,15 @@ public struct ProxyConfig: Codable, Sendable, Hashable, Identifiable {
         baseURL = try c.decode(URL.self, forKey: .baseURL)
         auth = try c.decodeIfPresent(ProxyAuth.self, forKey: .auth) ?? (kind == .nineRouter ? .password : .managementKey)
         isEnabled = try c.decode(Bool.self, forKey: .isEnabled)
+    }
+
+    /// A proxy URL as Settings and the CLI accept it: http or https with a
+    /// host, and no credentials, query or fragment.
+    public static func baseURL(from text: String) -> URL? {
+        guard let url = URL(string: text.trimmingCharacters(in: .whitespaces)),
+              ["http", "https"].contains(url.scheme?.lowercased() ?? ""), url.host?.isEmpty == false,
+              url.user == nil, url.password == nil, url.query == nil, url.fragment == nil else { return nil }
+        return url
     }
 }
 
@@ -98,6 +122,17 @@ public struct AccountDescriptor: Sendable, Hashable, Codable {
         self.proxyNote = proxyNote
         self.displayHint = displayHint
         self.locator = locator
+    }
+
+    /// What a listing-only test reports, providers by count then id:
+    /// "29 connections (26 active): Codex 11, Qoder 10, Antigravity 2, …".
+    public static func summary(_ accounts: [AccountDescriptor]) -> String {
+        let active = accounts.filter { !$0.isDisabled }.count
+        let providers = Dictionary(grouping: accounts, by: \.provider)
+            .sorted { $0.value.count != $1.value.count ? $0.value.count > $1.value.count : $0.key < $1.key }
+            .map { "\($0.key.displayName(hint: $0.value.first?.displayHint)) \($0.value.count)" }
+        let head = "\(AlertEngine.count(accounts.count, "connection")) (\(active) active)"
+        return providers.isEmpty ? head : "\(head): \(providers.joined(separator: ", "))"
     }
 }
 

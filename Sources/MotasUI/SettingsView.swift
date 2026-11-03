@@ -36,7 +36,7 @@ struct ProxiesTab: View {
                         HStack {
                             Toggle("", isOn: Binding(
                                 get: { proxy.isEnabled },
-                                set: { on in perform { var p = proxy; p.isEnabled = on; try model.save(p, secret: nil) } }
+                                set: { on in perform { var p = proxy; p.isEnabled = on; try await model.save(p, secret: nil) } }
                             ))
                             .labelsHidden().toggleStyle(.switch).controlSize(.mini)
                             VStack(alignment: .leading) {
@@ -65,8 +65,8 @@ struct ProxiesTab: View {
         }
     }
 
-    private func perform(_ action: () throws -> Void) {
-        do { try action(); error = nil } catch { self.error = "\(error)" }
+    private func perform(_ action: @escaping () async throws -> Void) {
+        Task { do { try await action(); error = nil } catch { self.error = "\(error)" } }
     }
 }
 
@@ -113,7 +113,7 @@ struct ProxyEditor: View {
             HStack {
                 if !isNew {
                     Button("Delete", role: .destructive) {
-                        perform { try model.remove(original.id); dismiss() }
+                        perform { try await model.remove(original.id); dismiss() }
                     }
                 }
                 Spacer()
@@ -122,7 +122,7 @@ struct ProxyEditor: View {
                 Button("Cancel", action: dismiss).keyboardShortcut(.cancelAction)
                 Button("Save") {
                     guard let draft else { return }
-                    perform { try model.save(draft, secret: secret.isEmpty ? nil : secret); dismiss() }
+                    perform { try await model.save(draft, secret: secret.isEmpty ? nil : secret); dismiss() }
                 }
                 .keyboardShortcut(.defaultAction)
                 .disabled(draft == nil)
@@ -174,8 +174,8 @@ struct ProxyEditor: View {
         }
     }
 
-    private func perform(_ action: () throws -> Void) {
-        do { try action(); error = nil } catch { self.error = "\(error)" }
+    private func perform(_ action: @escaping () async throws -> Void) {
+        Task { do { try await action(); error = nil } catch { self.error = "\(error)" } }
     }
 }
 

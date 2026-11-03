@@ -327,17 +327,3 @@ struct SharedSnapshotTests {
         #expect(WidgetDigest.shouldReload(digest(0.5, unhealthy: 1), last: last, lastReloadAt: t0, now: t0 + minute))
     }
 }
-
-@Suite("Keychain", .disabled("Touches the real login keychain; S3 replaces it with a fake backend"))
-struct KeychainTests {
-    @Test func setReadReplaceRemove() throws {
-        let store = KeychainSecretStore(service: "dev.motas.tests.\(UUID().uuidString)")
-        let id = UUID()
-        #expect(try store.secret(for: id) == nil)
-        try store.setSecret("first", for: id)
-        try store.setSecret("second", for: id)
-        #expect(try store.secret(for: id) == "second")
-        try store.setSecret(nil, for: id)
-        #expect(try store.secret(for: id) == nil)
-    }
-}

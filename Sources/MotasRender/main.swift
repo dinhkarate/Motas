@@ -45,10 +45,10 @@ func run() async {
 
     let model = AppModel(paths: paths, secrets: InMemorySecretStore(), autoRefresh: false)
     if let cpa = env["MOTAS_CPA_URL"].flatMap(URL.init(string:)) {
-        try? model.save(ProxyConfig(name: "obsession CPA", kind: .cliProxyAPI, baseURL: cpa), secret: env["MOTAS_CPA_KEY"])
+        try? await model.save(ProxyConfig(name: "obsession CPA", kind: .cliProxyAPI, baseURL: cpa), secret: env["MOTAS_CPA_KEY"])
     }
     if let nine = env["MOTAS_9R_URL"].flatMap(URL.init(string:)) {
-        try? model.save(ProxyConfig(name: "obsession 9Router", kind: .nineRouter, baseURL: nine, auth: .password), secret: env["MOTAS_9R_PASSWORD"])
+        try? await model.save(ProxyConfig(name: "obsession 9Router", kind: .nineRouter, baseURL: nine, auth: .password), secret: env["MOTAS_9R_PASSWORD"])
     }
     await model.refresh()
     for dark in [false, true] {

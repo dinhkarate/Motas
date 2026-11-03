@@ -186,15 +186,34 @@ final class TestSecrets: SecretStore, @unchecked Sendable {
         set { lock.withLock { _error = newValue } }
     }
 
-    func secret(for proxy: UUID, interactive: Bool) throws -> String? {
+    func secret(for id: UUID) throws -> String? {
         try lock.withLock {
             if let _error { throw _error }
-            return values[proxy]
+            return values[id]
         }
     }
 
-    func setSecret(_ value: String?, for proxy: UUID) throws { lock.withLock { values[proxy] = value } }
-    func hasSecret(for proxy: UUID) -> Bool { lock.withLock { values[proxy] != nil } }
+    func presence() -> SecretPresence { lock.withLock { _error == nil ? .known(Set(values.keys)) : .locked } }
+    func approve() async throws { error = nil }
+    func setSecret(_ value: String?, for id: UUID) async throws { lock.withLock { values[id] = value } }
+    func invalidate() {}
+}
+
+/// Waits for `semaphore` on a GCD thread, never blocking the cooperative pool.
+func wait(for semaphore: DispatchSemaphore) async {
+    await withCheckedContinuation { continuation in
+        DispatchQueue.global().async {
+            semaphore.wait()
+            continuation.resume()
+        }
+    }
+}
+
+/// UI preferences in a plist of their own (a suite named by a path), never the app's domain.
+func temporaryPreferences(legacyKeychainMigrated: Bool = true) -> UIPreferences {
+    let preferences = UIPreferences(defaults: UserDefaults(suiteName: tempURL("preferences").path)!)
+    preferences.legacyKeychainMigrated = legacyKeychainMigrated
+    return preferences
 }
 
 /// One line per reading, for table-driven expectations: limit windows as

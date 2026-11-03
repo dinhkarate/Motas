@@ -19,6 +19,8 @@ public final class AppModel: ObservableObject {
     @Published public private(set) var isRefreshing = false
     /// A problem with Motas itself (settings file, Keychain, disk) — not a proxy problem.
     @Published public private(set) var appError: String?
+    /// Which proxies have a secret, from the store's cache; never read from Keychain itself.
+    @Published public private(set) var secretPresence: SecretPresence = .locked
 
     let settingsStore: SettingsStore
     let secrets: any SecretStore
@@ -76,6 +78,7 @@ public final class AppModel: ObservableObject {
         monitor = Monitor(http: http, secrets: secrets, seed: snapshot)
         pools = Pool.summarize(snapshot, now: .now, staleLimit: settings.staleLimit)
         history = historyStore.load()
+        secretPresence = secrets.presence()
         // Started here, not from a view: a MenuBarExtra label's .task never runs.
         if autoRefresh { start() }
     }
@@ -126,6 +129,7 @@ public final class AppModel: ObservableObject {
         let current = await monitor.refresh(settings.proxies, force: false, reason: "refresh")
         let now = Date.now
         snapshot = current
+        secretPresence = secrets.presence()
         pools = Pool.summarize(current, now: now, staleLimit: settings.staleLimit)
         // Evaluated even with notifications off, so turning them on sends nothing stale.
         let due = alerts.evaluate(current, pools: pools, threshold: settings.lowReserveThreshold,
@@ -143,25 +147,36 @@ public final class AppModel: ObservableObject {
 
     // MARK: Settings
 
-    public func hasSecret(for proxy: UUID) -> Bool { secrets.hasSecret(for: proxy) }
+    /// False while Keychain is locked: then nobody knows.
+    public func hasSecret(for proxy: UUID) -> Bool { secretPresence.contains(proxy) == true }
 
     public var needsKeychainAccess: Bool { snapshot.proxies.contains { $0.health == .needsKeychainAccess } }
 
-    /// User-initiated: lets macOS show its Keychain prompt (off the main
-    /// thread), then refreshes. Approved secrets stay cached for this launch.
+    /// User-initiated: lets macOS show its Keychain prompt (on the store's
+    /// queue), then refreshes. Approved secrets stay cached for this launch.
     public func approveKeychainAccess() async {
-        let ids = settings.proxies.map(\.id)
-        let secrets = self.secrets
         // A menu bar app is not frontmost once its panel closes, and the
         // SecurityAgent prompt then opens behind other windows. Activate first.
         NSApplication.shared.activate(ignoringOtherApps: true)
-        await Task.detached { for id in ids { _ = try? secrets.secret(for: id, interactive: true) } }.value
+        var failure: String?
+        do {
+            try await secrets.approve()
+        } catch SecretStoreError.needsApproval {
+            // Declined: the banner stays.
+        } catch {
+            failure = "Keychain: \(error)"
+        }
+        secretPresence = secrets.presence()
         await refresh()
+        if let failure { appError = failure }
     }
 
     /// Saves (adds or replaces) a proxy. `secret == nil` keeps the stored one.
-    public func save(_ proxy: ProxyConfig, secret: String?) throws {
-        if let secret { try secrets.setSecret(secret, for: proxy.id) }
+    public func save(_ proxy: ProxyConfig, secret: String?) async throws {
+        if let secret {
+            try await secrets.setSecret(secret, for: proxy.id)
+            secretPresence = secrets.presence()
+        }
         try update { settings in
             if let index = settings.proxies.firstIndex(where: { $0.id == proxy.id }) {
                 settings.proxies[index] = proxy
@@ -171,9 +186,10 @@ public final class AppModel: ObservableObject {
         }
     }
 
-    public func remove(_ proxy: UUID) throws {
+    public func remove(_ proxy: UUID) async throws {
         try update { $0.proxies.removeAll { $0.id == proxy } }
-        try secrets.setSecret(nil, for: proxy)
+        try await secrets.setSecret(nil, for: proxy)
+        secretPresence = secrets.presence()
     }
 
     /// Writes through `SettingsStore.update`, so what the CLI saved meanwhile
@@ -196,8 +212,19 @@ public final class AppModel: ObservableObject {
     public func test(_ proxy: ProxyConfig, secret: String?) async -> Result<[AccountDescriptor], ProxyAccessError> {
         var resolved = secret
         if resolved == nil {
+            // The stored secret, off the main thread. Test is a user action, so it may ask for approval.
             let secrets = self.secrets, id = proxy.id
-            resolved = await Task.detached { try? secrets.secret(for: id, interactive: true) }.value
+            resolved = await Task.detached {
+                do {
+                    return try secrets.secret(for: id)
+                } catch SecretStoreError.needsApproval {
+                    try? await secrets.approve()
+                    return try? secrets.secret(for: id)
+                } catch {
+                    return nil
+                }
+            }.value
+            secretPresence = secrets.presence()
         }
         return await monitor.test(proxy, secret: resolved)
     }

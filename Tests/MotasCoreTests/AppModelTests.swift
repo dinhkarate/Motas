@@ -49,8 +49,8 @@ struct AppModelTests {
     @Test func addingProxiesStoresSecretsInKeychainAndShowsRealAccounts() async throws {
         let secrets = InMemorySecretStore()
         let m = model(secrets: secrets)
-        try m.save(cpaConfig, secret: "mgmt")
-        try m.save(nineConfig, secret: "pw")
+        try await m.save(cpaConfig, secret: "mgmt")
+        try await m.save(nineConfig, secret: "pw")
         await m.refresh()
 
         #expect(try secrets.secret(for: cpaConfig.id) == "mgmt")
@@ -64,33 +64,35 @@ struct AppModelTests {
         #expect(SharedSnapshot.load(from: paths.snapshot)?.headlineID == "codex|free|")
     }
 
-    @Test func savingWithoutSecretKeepsStoredOne() throws {
+    @Test func savingWithoutSecretKeepsStoredOne() async throws {
         let secrets = InMemorySecretStore()
         let m = model(secrets: secrets)
-        try m.save(cpaConfig, secret: "mgmt")
+        try await m.save(cpaConfig, secret: "mgmt")
         var renamed = cpaConfig
         renamed.name = "Renamed"
-        try m.save(renamed, secret: nil)
+        try await m.save(renamed, secret: nil)
         #expect(try secrets.secret(for: cpaConfig.id) == "mgmt")
         #expect(m.settings.proxies.map(\.name) == ["Renamed"])
     }
 
-    @Test func savingKeepsAProxyTheCLIAdded() throws {
+    @Test func savingKeepsAProxyTheCLIAdded() async throws {
         let m = model()
-        try m.save(cpaConfig, secret: nil)
+        try await m.save(cpaConfig, secret: nil)
         try SettingsStore(url: paths.settings).update { $0.proxies.append(nineConfig) }
         var renamed = cpaConfig
         renamed.name = "Renamed"
-        try m.save(renamed, secret: nil)
+        try await m.save(renamed, secret: nil)
         #expect(m.settings.proxies.map(\.name) == ["Renamed", "Testbed 9Router"])
         #expect(try SettingsStore(url: paths.settings).load() == m.settings)
     }
 
-    @Test func removingProxyDeletesItsSecret() throws {
+    @Test func removingProxyDeletesItsSecret() async throws {
         let secrets = InMemorySecretStore()
         let m = model(secrets: secrets)
-        try m.save(cpaConfig, secret: "mgmt")
-        try m.remove(cpaConfig.id)
+        try await m.save(cpaConfig, secret: "mgmt")
+        #expect(m.secretPresence == .known([cpaConfig.id]))
+        try await m.remove(cpaConfig.id)
+        #expect(m.secretPresence == .known([]))
         #expect(m.settings.proxies.isEmpty)
         #expect(try secrets.secret(for: cpaConfig.id) == nil)
     }
@@ -98,7 +100,7 @@ struct AppModelTests {
     @Test func settingsSurviveRelaunchAndStaleSnapshotIsShownUntilRefresh() async throws {
         let secrets = InMemorySecretStore()
         let first = model(secrets: secrets)
-        try first.save(cpaConfig, secret: "mgmt")
+        try await first.save(cpaConfig, secret: "mgmt")
         await first.refresh()
 
         let second = model(secrets: secrets)
@@ -110,36 +112,37 @@ struct AppModelTests {
     @Test func removedProxyDisappearsFromRestoredSnapshot() async throws {
         let secrets = InMemorySecretStore()
         let first = model(secrets: secrets)
-        try first.save(cpaConfig, secret: "mgmt")
+        try await first.save(cpaConfig, secret: "mgmt")
         await first.refresh()
-        try first.remove(cpaConfig.id)
+        try await first.remove(cpaConfig.id)
         #expect(model(secrets: secrets).snapshot.proxies.isEmpty)
     }
 
-    @Test func corruptSettingsAreReportedAndLeftUntouched() throws {
+    @Test func corruptSettingsAreReportedAndLeftUntouched() async throws {
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         try Data("{broken".utf8).write(to: paths.settings)
         let m = model()
         #expect(m.appError?.contains("settings.json") == true)
-        #expect(throws: (any Error).self) { try m.save(cpaConfig, secret: nil) }
+        await #expect(throws: (any Error).self) { try await m.save(cpaConfig, secret: nil) }
         #expect(m.settings.proxies.isEmpty)
         #expect(try Data(contentsOf: paths.settings) == Data("{broken".utf8))
     }
 
     @Test func keychainApprovalNeverBlocksBackgroundRefresh() async throws {
         let http = testbeds()
-        let secrets = InMemorySecretStore([cpaConfig.id: "mgmt"], needingApproval: [cpaConfig.id])
+        let secrets = InMemorySecretStore([cpaConfig.id: "mgmt"], needingApproval: true)
         let m = model(http: http, secrets: secrets)
         try m.update { $0.proxies = [cpaConfig] }
         await m.refresh()
         #expect(m.snapshot.proxies.first?.health == .needsKeychainAccess)
         #expect(m.needsKeychainAccess)
         #expect(http.requests.isEmpty)            // no request without a credential
-        #expect(m.hasSecret(for: cpaConfig.id))    // settings can tell a secret exists
+        #expect(m.secretPresence == .locked && !m.hasSecret(for: cpaConfig.id))    // nobody knows until approved
 
         await m.approveKeychainAccess()
         #expect(m.snapshot.proxies.first?.health == .ok)
         #expect(!m.needsKeychainAccess)
+        #expect(m.secretPresence == .known([cpaConfig.id]) && m.hasSecret(for: cpaConfig.id))
     }
 
     @Test func notifiesWhenProxyGoesDown() async throws {
@@ -151,7 +154,7 @@ struct AppModelTests {
             return try up.handler(req)
         }
         let m = model(http: http, notifier: notifier)
-        try m.save(cpaConfig, secret: "mgmt")
+        try await m.save(cpaConfig, secret: "mgmt")
         await m.refresh()
         #expect(notifier.delivered.isEmpty)       // first refresh never alerts
         down.value = true

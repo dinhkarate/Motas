@@ -1,4 +1,5 @@
 import Foundation
+import Security
 import Testing
 @testable import MotasCore
 
@@ -46,11 +47,48 @@ struct MonitorTests {
         #expect(locked.consecutiveFailures == 1 && locked.lastSuccessAt == t0)
         #expect(http.requests.count == requests)
 
-        secrets.error = CocoaError(.fileReadUnknown)
+        // Any other Keychain error is no proxy failure either: Allow… retries the read.
+        secrets.error = KeychainError(status: errSecNoSuchKeychain)
         let broken = try #require(await monitor.refresh([productionConfig], force: false, reason: "test").proxies.first)
-        guard case .failed(.failed(let message)) = broken.health else { Issue.record("expected a Keychain failure"); return }
-        #expect(message.hasPrefix("Keychain: "))
+        #expect(broken.health == .needsKeychainAccess)
         #expect(broken.accounts == first.accounts && broken.consecutiveFailures == 1)
+        #expect(http.requests.count == requests)
+    }
+
+    /// Two offline refreshes leave a streak of 2; a Keychain error after them
+    /// must not read as the proxy being down.
+    @Test func aKeychainErrorNeverAlertsOrCountsAsUnhealthy() async throws {
+        let offline = Flag()
+        let up = nineProduction()
+        let http = StubHTTP { req in
+            if offline.value { throw URLError(.notConnectedToInternet) }
+            return try up.handler(req)
+        }
+        let now = TestNow()
+        let secrets = TestSecrets([productionConfig.id: productionToken])
+        let monitor = Monitor(http: http, secrets: secrets, seed: nil, now: now.function)
+        var engine = AlertEngine()
+        func refresh() async -> (Snapshot, [QuotaAlert]) {
+            let snapshot = await monitor.refresh([productionConfig], force: false, reason: "test")
+            let alerts = engine.evaluate(snapshot, pools: [], threshold: 0.2, refreshInterval: 300, online: true, now: now.date)
+            now.advance(300)
+            return (snapshot, alerts)
+        }
+        #expect(await refresh().1.isEmpty)
+        offline.value = true
+        _ = await refresh()
+        let (streak, offlineAlerts) = await refresh()
+        #expect(streak.proxies.first?.health == .failed(.offline("Network unavailable")))
+        #expect(streak.proxies.first?.consecutiveFailures == 2 && offlineAlerts.isEmpty)
+
+        offline.value = false
+        secrets.error = KeychainError(status: errSecNoSuchKeychain)
+        let (locked, alerts) = await refresh()
+        let proxy = try #require(locked.proxies.first)
+        #expect(proxy.health == .needsKeychainAccess && proxy.consecutiveFailures == 2)
+        #expect(alerts.isEmpty)
+        #expect(!proxy.isUnhealthy && !AlertEngine.isDown(proxy))
+        #expect(SharedSnapshot(snapshot: locked, threshold: 0.2, pools: [], headlineID: nil, savedAt: now.date).unhealthyProxies == 0)
     }
 
     @Test func missingCredentialSendsNothing() async throws {
@@ -81,7 +119,7 @@ struct MonitorTests {
             return snap.proxies.first?.accounts.filter { if case .rejected = $0.quota { true } else { false } }.count ?? -1
         }
         #expect(await rejected(productionConfig) == 0)
-        try secrets.setSecret("tok-b", for: productionConfig.id)
+        try await secrets.setSecret("tok-b", for: productionConfig.id)
         #expect(await rejected(productionConfig) == 9)
         #expect(http.requests.allSatisfy { $0.value(forHTTPHeaderField: "x-9r-cli-token") != nil })
         #expect(http.requests.last?.value(forHTTPHeaderField: "x-9r-cli-token") == "tok-b")
@@ -98,7 +136,7 @@ struct MonitorTests {
         _ = await monitor.refresh([nineConfig], force: false, reason: "test")
         _ = await monitor.refresh([nineConfig], force: false, reason: "test")
         #expect(http.requests.filter { $0.path == "/api/auth/login" }.count == 1)
-        try secrets.setSecret("wrong", for: nineConfig.id)
+        try await secrets.setSecret("wrong", for: nineConfig.id)
         let snap = await monitor.refresh([nineConfig], force: false, reason: "test")
         #expect(snap.proxies.first?.health == .failed(.unauthorized("Wrong password")))
         #expect(snap.proxies.first?.accounts.count == 2)    // carried
@@ -134,7 +172,7 @@ struct MonitorTests {
 
         // The seeded state is adopted by the config's URL and survives a refresh that reads.
         secrets.error = nil
-        try secrets.setSecret("pw", for: home.id)
+        try await secrets.setSecret("pw", for: home.id)
         let read = try #require(await monitor.refresh([config], force: false, reason: "test").proxies.first)
         #expect(read.health == .ok && read.accounts.count == 29)
 
