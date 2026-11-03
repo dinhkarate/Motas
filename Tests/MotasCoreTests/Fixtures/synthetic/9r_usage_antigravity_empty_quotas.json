@@ -1,0 +1,14 @@
+{
+  "plan": "Antigravity",
+  "quotas": {},
+  "subscriptionInfo": {
+    "paidTier": {
+      "id": "free-tier",
+      "name": "Antigravity Starter Quota"
+    },
+    "currentTier": {
+      "id": "free-tier",
+      "name": "Antigravity"
+    }
+  }
+}

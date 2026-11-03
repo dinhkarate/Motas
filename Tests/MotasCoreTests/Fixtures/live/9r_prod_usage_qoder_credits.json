@@ -1,0 +1,23 @@
+{
+  "expiresAt": 253402214400000,
+  "isQuotaExceeded": true,
+  "quotas": {
+    "organization": {
+      "neverExpires": true,
+      "remaining": 0,
+      "resetAt": null,
+      "total": 0,
+      "unit": "credits",
+      "used": 0
+    },
+    "user": {
+      "neverExpires": true,
+      "remaining": 0,
+      "resetAt": null,
+      "total": 0,
+      "unit": "credits",
+      "used": 0
+    }
+  },
+  "totalUsagePercentage": 0
+}

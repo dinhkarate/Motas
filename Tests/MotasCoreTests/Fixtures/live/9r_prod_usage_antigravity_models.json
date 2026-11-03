@@ -1,0 +1,87 @@
+{
+  "plan": "Antigravity",
+  "quotas": {
+    "claude-opus-4-6-thinking": {
+      "displayName": "Claude Opus 4.6 (Thinking)",
+      "remainingPercentage": 100,
+      "resetAt": "2026-11-09T16:10:05.000Z",
+      "total": 1000,
+      "unlimited": false,
+      "used": 0
+    },
+    "claude-sonnet-4-6": {
+      "displayName": "Claude Sonnet 4.6 (Thinking)",
+      "remainingPercentage": 100,
+      "resetAt": "2026-11-09T16:10:05.000Z",
+      "total": 1000,
+      "unlimited": false,
+      "used": 0
+    },
+    "claude_gpt_weekly": {
+      "displayName": "Claude & GPT (Weekly)",
+      "remainingPercentage": 100,
+      "resetAt": "2026-11-09T16:10:06.000Z",
+      "total": 1000,
+      "unlimited": false,
+      "used": 0
+    },
+    "gemini-3.1-flash-image": {
+      "displayName": "Gemini 3.1 Flash Image",
+      "remainingPercentage": 98.33024,
+      "resetAt": "2026-11-09T09:02:15.000Z",
+      "total": 1000,
+      "unlimited": false,
+      "used": 17
+    },
+    "gemini-3.8-flash-high": {
+      "displayName": "Gemini 3.8 Flash (High)",
+      "remainingPercentage": 98.33024,
+      "resetAt": "2026-11-09T09:02:15.000Z",
+      "total": 1000,
+      "unlimited": false,
+      "used": 17
+    },
+    "gemini-3.8-flash-low": {
+      "displayName": "Gemini 3.8 Flash (Low)",
+      "remainingPercentage": 98.33024,
+      "resetAt": "2026-11-09T09:02:15.000Z",
+      "total": 1000,
+      "unlimited": false,
+      "used": 17
+    },
+    "gemini-3.8-flash-medium": {
+      "displayName": "Gemini 3.8 Flash (Medium)",
+      "remainingPercentage": 98.33024,
+      "resetAt": "2026-11-09T09:02:15.000Z",
+      "total": 1000,
+      "unlimited": false,
+      "used": 17
+    },
+    "gemini_weekly": {
+      "displayName": "Gemini (Weekly)",
+      "remainingPercentage": 98.33024,
+      "resetAt": "2026-11-09T09:02:15.000Z",
+      "total": 1000,
+      "unlimited": false,
+      "used": 17
+    },
+    "gpt-oss-120b-medium": {
+      "displayName": "GPT-OSS 120B (Medium)",
+      "remainingPercentage": 100,
+      "resetAt": "2026-11-09T16:10:05.000Z",
+      "total": 1000,
+      "unlimited": false,
+      "used": 0
+    }
+  },
+  "subscriptionInfo": {
+    "paidTier": {
+      "id": "g1-plus-tier",
+      "name": "Google AI Plus"
+    },
+    "currentTier": {
+      "id": "free-tier",
+      "name": "Antigravity"
+    }
+  }
+}

@@ -1,0 +1,441 @@
+{
+  "00000000-0000-4000-8000-000000000001": {
+    "status": 200,
+    "body": {
+      "message": "Qoder connected. Usage fetch returned 401."
+    }
+  },
+  "00000000-0000-4000-8000-000000000002": {
+    "status": 200,
+    "body": {
+      "message": "Usage not available for this connection"
+    }
+  },
+  "00000000-0000-4000-8000-000000000003": {
+    "status": 200,
+    "body": {
+      "message": "Usage not available for this connection"
+    }
+  },
+  "00000000-0000-4000-8000-000000000004": {
+    "status": 200,
+    "body": {
+      "plan": "Antigravity",
+      "quotas": {
+        "claude-opus-4-6-thinking": {
+          "used": 0,
+          "total": 1000,
+          "resetAt": "2026-11-09T16:10:05.000Z",
+          "remainingPercentage": 100,
+          "unlimited": false,
+          "displayName": "Claude Opus 4.6 (Thinking)"
+        },
+        "gemini-3.1-flash-image": {
+          "used": 17,
+          "total": 1000,
+          "resetAt": "2026-11-09T09:02:15.000Z",
+          "remainingPercentage": 98.33024,
+          "unlimited": false,
+          "displayName": "Gemini 3.1 Flash Image"
+        },
+        "gpt-oss-120b-medium": {
+          "used": 0,
+          "total": 1000,
+          "resetAt": "2026-11-09T16:10:05.000Z",
+          "remainingPercentage": 100,
+          "unlimited": false,
+          "displayName": "GPT-OSS 120B (Medium)"
+        },
+        "gemini-3.8-flash-medium": {
+          "used": 17,
+          "total": 1000,
+          "resetAt": "2026-11-09T09:02:15.000Z",
+          "remainingPercentage": 98.33024,
+          "unlimited": false,
+          "displayName": "Gemini 3.8 Flash (Medium)"
+        },
+        "gemini-3.8-flash-high": {
+          "used": 17,
+          "total": 1000,
+          "resetAt": "2026-11-09T09:02:15.000Z",
+          "remainingPercentage": 98.33024,
+          "unlimited": false,
+          "displayName": "Gemini 3.8 Flash (High)"
+        },
+        "gemini-3.8-flash-low": {
+          "used": 17,
+          "total": 1000,
+          "resetAt": "2026-11-09T09:02:15.000Z",
+          "remainingPercentage": 98.33024,
+          "unlimited": false,
+          "displayName": "Gemini 3.8 Flash (Low)"
+        },
+        "claude-sonnet-4-6": {
+          "used": 0,
+          "total": 1000,
+          "resetAt": "2026-11-09T16:10:05.000Z",
+          "remainingPercentage": 100,
+          "unlimited": false,
+          "displayName": "Claude Sonnet 4.6 (Thinking)"
+        },
+        "gemini_weekly": {
+          "used": 17,
+          "total": 1000,
+          "resetAt": "2026-11-09T09:02:15.000Z",
+          "remainingPercentage": 98.33024,
+          "unlimited": false,
+          "displayName": "Gemini (Weekly)"
+        },
+        "claude_gpt_weekly": {
+          "used": 0,
+          "total": 1000,
+          "resetAt": "2026-11-09T16:10:06.000Z",
+          "remainingPercentage": 100,
+          "unlimited": false,
+          "displayName": "Claude & GPT (Weekly)"
+        }
+      },
+      "subscriptionInfo": {
+        "paidTier": {
+          "id": "g1-plus-tier",
+          "name": "Google AI Plus"
+        },
+        "currentTier": {
+          "id": "free-tier",
+          "name": "Antigravity"
+        }
+      }
+    }
+  },
+  "00000000-0000-4000-8000-000000000007": {
+    "status": 200,
+    "body": {
+      "plan": "free",
+      "quotas": {
+        "session": {
+          "used": 100,
+          "total": 100,
+          "remaining": 0,
+          "resetAt": "2026-11-17T03:03:10.000Z",
+          "unlimited": false
+        }
+      },
+      "limitReached": true,
+      "reviewLimitReached": false,
+      "sparkLimitReached": false,
+      "resetCredits": {
+        "availableCount": 1
+      }
+    }
+  },
+  "00000000-0000-4000-8000-000000000008": {
+    "status": 200,
+    "body": {
+      "message": "Usage API not implemented for xai"
+    }
+  },
+  "00000000-0000-4000-8000-000000000009": {
+    "status": 200,
+    "body": {
+      "message": "Usage not available for this connection"
+    }
+  },
+  "00000000-0000-4000-8000-000000000010": {
+    "status": 200,
+    "body": {
+      "quotas": {
+        "user": {
+          "total": 0,
+          "used": 0,
+          "remaining": 0,
+          "unit": "credits",
+          "resetAt": null,
+          "neverExpires": true
+        },
+        "organization": {
+          "total": 0,
+          "used": 0,
+          "remaining": 0,
+          "unit": "credits",
+          "resetAt": null,
+          "neverExpires": true
+        }
+      },
+      "isQuotaExceeded": true
+    }
+  },
+  "00000000-0000-4000-8000-000000000013": {
+    "status": 200,
+    "body": {
+      "plan": "go",
+      "quotas": {
+        "session": {
+          "used": 100,
+          "total": 100,
+          "remaining": 0,
+          "resetAt": "2026-11-25T09:22:42.000Z",
+          "unlimited": false
+        }
+      },
+      "limitReached": true,
+      "reviewLimitReached": false,
+      "sparkLimitReached": false,
+      "resetCredits": {
+        "availableCount": 2
+      }
+    }
+  },
+  "00000000-0000-4000-8000-000000000014": {
+    "status": 200,
+    "body": {
+      "message": "Usage not available for this connection"
+    }
+  },
+  "00000000-0000-4000-8000-000000000015": {
+    "status": 200,
+    "body": {
+      "plan": "Antigravity",
+      "quotas": {
+        "gemini_weekly": {
+          "used": 0,
+          "total": 1000,
+          "resetAt": "2026-11-09T12:35:29.000Z",
+          "remainingPercentage": 100,
+          "unlimited": false,
+          "displayName": "Gemini (Weekly)"
+        },
+        "claude_gpt_weekly": {
+          "used": 0,
+          "total": 1000,
+          "resetAt": "2026-11-09T16:10:12.000Z",
+          "remainingPercentage": 100,
+          "unlimited": false,
+          "displayName": "Claude & GPT (Weekly)"
+        }
+      },
+      "subscriptionInfo": {
+        "paidTier": {
+          "id": "free-tier",
+          "name": "Antigravity Starter Quota"
+        },
+        "currentTier": {
+          "id": "free-tier",
+          "name": "Antigravity"
+        }
+      }
+    }
+  },
+  "00000000-0000-4000-8000-000000000016": {
+    "status": 200,
+    "body": {
+      "message": "Usage API not implemented for xai"
+    }
+  },
+  "00000000-0000-4000-8000-000000000017": {
+    "status": 200,
+    "body": {
+      "message": "Qoder connected. Usage fetch returned 401."
+    }
+  },
+  "00000000-0000-4000-8000-000000000020": {
+    "status": 200,
+    "body": {
+      "plan": "free",
+      "quotas": {
+        "session": {
+          "used": 100,
+          "total": 100,
+          "remaining": 0,
+          "resetAt": "2026-11-17T03:04:22.000Z",
+          "unlimited": false
+        }
+      },
+      "limitReached": true,
+      "reviewLimitReached": false,
+      "sparkLimitReached": false,
+      "resetCredits": {
+        "availableCount": 0
+      }
+    }
+  },
+  "00000000-0000-4000-8000-000000000021": {
+    "status": 200,
+    "body": {
+      "message": "Qoder connected. Usage fetch returned 401."
+    }
+  },
+  "00000000-0000-4000-8000-000000000024": {
+    "status": 200,
+    "body": {
+      "plan": "free",
+      "quotas": {
+        "session": {
+          "used": 100,
+          "total": 100,
+          "remaining": 0,
+          "resetAt": "2026-11-27T15:28:47.000Z",
+          "unlimited": false
+        }
+      },
+      "limitReached": true,
+      "reviewLimitReached": false,
+      "sparkLimitReached": false,
+      "resetCredits": {
+        "availableCount": 0
+      }
+    }
+  },
+  "00000000-0000-4000-8000-000000000025": {
+    "status": 200,
+    "body": {
+      "message": "Qoder connected. Usage fetch returned 401."
+    }
+  },
+  "00000000-0000-4000-8000-000000000028": {
+    "status": 200,
+    "body": {
+      "plan": "free",
+      "quotas": {
+        "session": {
+          "used": 38,
+          "total": 100,
+          "remaining": 62,
+          "resetAt": "2026-11-28T06:16:34.000Z",
+          "unlimited": false
+        }
+      },
+      "limitReached": false,
+      "reviewLimitReached": false,
+      "sparkLimitReached": false,
+      "resetCredits": {
+        "availableCount": 0
+      }
+    }
+  },
+  "00000000-0000-4000-8000-000000000029": {
+    "status": 200,
+    "body": {
+      "message": "Qoder connected. Usage fetch returned 401."
+    }
+  },
+  "00000000-0000-4000-8000-000000000032": {
+    "status": 200,
+    "body": {
+      "plan": "free",
+      "quotas": {
+        "session": {
+          "used": 0,
+          "total": 100,
+          "remaining": 100,
+          "resetAt": "2026-12-02T16:10:23.000Z",
+          "unlimited": false
+        }
+      },
+      "limitReached": false,
+      "reviewLimitReached": false,
+      "sparkLimitReached": false,
+      "resetCredits": {
+        "availableCount": 0
+      }
+    }
+  },
+  "00000000-0000-4000-8000-000000000033": {
+    "status": 200,
+    "body": {
+      "message": "Qoder connected. Usage fetch returned 401."
+    }
+  },
+  "00000000-0000-4000-8000-000000000036": {
+    "status": 200,
+    "body": {
+      "plan": "free",
+      "quotas": {
+        "session": {
+          "used": 0,
+          "total": 100,
+          "remaining": 100,
+          "resetAt": "2026-12-02T16:10:25.000Z",
+          "unlimited": false
+        }
+      },
+      "limitReached": false,
+      "reviewLimitReached": false,
+      "sparkLimitReached": false,
+      "resetCredits": {
+        "availableCount": 0
+      }
+    }
+  },
+  "00000000-0000-4000-8000-000000000037": {
+    "status": 200,
+    "body": {
+      "message": "Qoder connected. Usage fetch returned 401."
+    }
+  },
+  "00000000-0000-4000-8000-000000000040": {
+    "status": 200,
+    "body": {
+      "plan": "free",
+      "quotas": {
+        "session": {
+          "used": 0,
+          "total": 100,
+          "remaining": 100,
+          "resetAt": "2026-12-02T16:10:29.000Z",
+          "unlimited": false
+        }
+      },
+      "limitReached": false,
+      "reviewLimitReached": false,
+      "sparkLimitReached": false,
+      "resetCredits": {
+        "availableCount": 0
+      }
+    }
+  },
+  "00000000-0000-4000-8000-000000000041": {
+    "status": 200,
+    "body": {
+      "message": "Qoder connected. Usage fetch returned 401."
+    }
+  },
+  "00000000-0000-4000-8000-000000000044": {
+    "status": 200,
+    "body": {
+      "plan": "free",
+      "quotas": {
+        "session": {
+          "used": 0,
+          "total": 100,
+          "remaining": 100,
+          "resetAt": "2026-11-20T03:06:24.000Z",
+          "unlimited": false
+        }
+      },
+      "limitReached": false,
+      "reviewLimitReached": false,
+      "sparkLimitReached": false,
+      "resetCredits": {
+        "availableCount": 0
+      }
+    }
+  },
+  "00000000-0000-4000-8000-000000000045": {
+    "status": 200,
+    "body": {
+      "message": "Qoder connected. Usage fetch returned 401."
+    }
+  },
+  "00000000-0000-4000-8000-000000000048": {
+    "status": 401,
+    "body": {
+      "error": "Credential refresh failed: Refresh token invalid or reused. Please re-authorize the connection."
+    }
+  },
+  "00000000-0000-4000-8000-000000000051": {
+    "status": 401,
+    "body": {
+      "error": "Credential refresh failed: Refresh token invalid or reused. Please re-authorize the connection."
+    }
+  }
+}

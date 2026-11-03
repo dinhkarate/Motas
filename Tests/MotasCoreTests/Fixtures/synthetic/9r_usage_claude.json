@@ -1,0 +1,38 @@
+{
+  "plan": "Claude Code",
+  "extraUsage": null,
+  "quotas": {
+    "session (5h)": {
+      "used": 35,
+      "total": 100,
+      "remaining": 65,
+      "remainingPercentage": 65,
+      "resetAt": "2026-11-02T20:00:00.000Z",
+      "unlimited": false
+    },
+    "weekly (7d)": {
+      "used": 60,
+      "total": 100,
+      "remaining": 40,
+      "remainingPercentage": 40,
+      "resetAt": "2026-11-06T09:00:00.000Z",
+      "unlimited": false
+    },
+    "weekly sonnet (7d)": {
+      "used": 100,
+      "total": 100,
+      "remaining": 0,
+      "remainingPercentage": 0,
+      "resetAt": "2026-11-06T09:00:00.000Z",
+      "unlimited": false
+    },
+    "weekly fable (7d)": {
+      "used": 20,
+      "total": 100,
+      "remaining": 80,
+      "remainingPercentage": 80,
+      "resetAt": "2026-11-06T09:00:00.000Z",
+      "unlimited": false
+    }
+  }
+}

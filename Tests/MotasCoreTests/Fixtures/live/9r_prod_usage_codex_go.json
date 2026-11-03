@@ -1,0 +1,18 @@
+{
+  "plan": "go",
+  "quotas": {
+    "session": {
+      "used": 100,
+      "total": 100,
+      "remaining": 0,
+      "resetAt": "2026-11-25T09:22:42.000Z",
+      "unlimited": false
+    }
+  },
+  "limitReached": true,
+  "reviewLimitReached": false,
+  "sparkLimitReached": false,
+  "resetCredits": {
+    "availableCount": 2
+  }
+}

@@ -14,6 +14,8 @@ raw_dir, out_dir = sys.argv[1], sys.argv[2]
 os.makedirs(out_dir, exist_ok=True)
 
 EMAIL = re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}")
+# URL-encoded addresses (e.g. Google AccountChooser links) slip past EMAIL.
+ENCODED_EMAIL = re.compile(r"[A-Za-z0-9._+-]+%40[A-Za-z0-9.-]+\.[A-Za-z]{2,}")
 UUID = re.compile(r"\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b", re.I)
 fakes = {}
 
@@ -34,6 +36,7 @@ def fake(kind, value):
 
 def scrub_str(key, s):
     s = EMAIL.sub(lambda m: fake("email", m.group(0)), s)
+    s = ENCODED_EMAIL.sub(lambda m: fake("email", m.group(0).replace("%40", "@")).replace("@", "%40"), s)
     s = UUID.sub(lambda m: fake("uuid", m.group(0)), s)
     if key in ("auth_index",):
         return fake("hex", s)
@@ -79,7 +82,7 @@ for fn in sorted(os.listdir(raw_dir)):
         continue
     doc = process(fn, json.load(open(os.path.join(raw_dir, fn))))
     text = json.dumps(doc, indent=2, sort_keys=True) + "\n"
-    if TOKENISH.search(text) or EMAIL.search(text.replace("@example.com", "")):
+    if TOKENISH.search(text) or EMAIL.search(text.replace("@example.com", "")) or ENCODED_EMAIL.search(text.replace("%40example.com", "")):
         sys.exit(f"refusing to write {fn}: token- or email-like content survived")
     with open(os.path.join(out_dir, fn), "w") as f:
         f.write(text)
