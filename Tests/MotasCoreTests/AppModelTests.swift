@@ -25,7 +25,7 @@ struct AppModelTests {
 
     func testbeds() -> StubHTTP {
         let cpa = cpaTestbed(), nine = nineTestbed()
-        return StubHTTP { req in try (req.url!.host == "cpa.test" ? cpa : nine).handler(req) }
+        return StubHTTP { req in try (req.url!.host == "cpa.local" ? cpa : nine).handler(req) }
     }
 
     func model(http: StubHTTP? = nil, secrets: InMemorySecretStore = .init(), notifier: RecordingNotifier = .init()) -> AppModel {

@@ -75,13 +75,13 @@ struct ProxyEditor: View {
     let original: ProxyConfig
     let isNew: Bool
     let dismiss: () -> Void
-    var initialTestResult: ProxySnapshot? = nil
+    var initialTestResult: Result<[AccountDescriptor], ProxyAccessError>? = nil
 
     @State private var name = ""
     @State private var kind = ProxyKind.cliProxyAPI
     @State private var url = ""
     @State private var secret = ""
-    @State private var testResult: ProxySnapshot?
+    @State private var testResult: Result<[AccountDescriptor], ProxyAccessError>?
     @State private var testing = false
     @State private var error: String?
 
@@ -98,11 +98,12 @@ struct ProxyEditor: View {
                 }
                 TextField("Name", text: $name, prompt: Text("e.g. vina2"))
                 TextField("URL", text: $url, prompt: Text(kind.defaultBaseURL.absoluteString))
-                SecureField(kind == .cliProxyAPI ? "Management key" : "Dashboard password", text: $secret,
+                SecureField(secretLabel, text: $secret,
                             prompt: Text(hasStoredSecret ? "Stored in Keychain — leave blank to keep" : "Stored in Keychain"))
             }
             Text(kind == .cliProxyAPI
                  ? "Needs remote management enabled (management.allow-remote) for non-local URLs. Motas only reads; the proxy calls each provider's usage endpoint with the account's own token."
+                 : auth == .cliToken ? "Permanent admin key for this 9Router. Motas only uses it for two read-only requests."
                  : "Uses the dashboard login. Motas only reads accounts and their usage.")
                 .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
 
@@ -139,6 +140,17 @@ struct ProxyEditor: View {
 
     private var hasStoredSecret: Bool { !isNew && model.hasSecret(for: original.id) }
 
+    /// The saved sign-in, or the default for a newly chosen kind.
+    private var auth: ProxyAuth { kind == original.kind ? original.auth : .newDefault(for: kind) }
+
+    private var secretLabel: String {
+        switch auth {
+        case .managementKey: "Management key"
+        case .cliToken: "CLI token"
+        case .password: "Dashboard password"
+        }
+    }
+
     /// Valid http(s) URL with a host; no credentials, query or fragment.
     private var draft: ProxyConfig? {
         let trimmed = url.trimmingCharacters(in: .whitespaces)
@@ -147,6 +159,7 @@ struct ProxyEditor: View {
               parsed.query == nil, parsed.fragment == nil else { return nil }
         var config = original
         config.kind = kind
+        config.auth = auth
         config.baseURL = parsed
         config.name = name.trimmingCharacters(in: .whitespaces).isEmpty ? (parsed.host ?? kind.displayName) : name
         return config
@@ -167,24 +180,22 @@ struct ProxyEditor: View {
 }
 
 struct TestSummary: View {
-    let result: ProxySnapshot
+    let result: Result<[AccountDescriptor], ProxyAccessError>
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            if result.health.isOK {
-                Label("Connected — \(Design.count(result.accounts.count, "account"))", systemImage: "checkmark.circle.fill").foregroundStyle(.green)
-                let byProvider = Dictionary(grouping: result.accounts) { $0.provider }.sorted { $0.key < $1.key }
-                ForEach(byProvider, id: \.0) { provider, accounts in
-                    let measured = accounts.filter { !$0.quota.windows.isEmpty }.count
-                    Text("\(provider.displayName): \(Design.count(accounts.count, "account")), \(measured) with quota figures")
-                        .font(.caption).foregroundStyle(.secondary)
-                }
-            } else {
-                Label(result.health.summary, systemImage: "xmark.octagon.fill").foregroundStyle(.red)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
+        switch result {
+        case .success(let accounts):
+            let active = accounts.filter { !$0.isDisabled }.count
+            let byProvider = Dictionary(grouping: accounts) { $0.provider }
+                .sorted { $0.value.count != $1.value.count ? $0.value.count > $1.value.count : $0.key < $1.key }
+            Label("\(Design.count(accounts.count, "connection")) (\(active) active): "
+                  + byProvider.map { "\($0.key.displayName) \($0.value.count)" }.joined(separator: ", "),
+                  systemImage: "checkmark.circle.fill")
+                .foregroundStyle(.green).font(.callout).fixedSize(horizontal: false, vertical: true)
+        case .failure(let error):
+            Label(error.summary, systemImage: "xmark.octagon.fill").foregroundStyle(.red).font(.callout)
+                .fixedSize(horizontal: false, vertical: true)
         }
-        .font(.callout)
     }
 }
 

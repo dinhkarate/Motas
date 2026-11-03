@@ -60,18 +60,28 @@ extension ProxyHealth {
     var logLabel: String {
         switch self {
         case .ok: "ok"
-        case .unauthorized: "unauthorized"
         case .needsKeychainAccess: "needsKeychainAccess"
-        case .unreachable(let r): "unreachable(\(r))"
-        case .failed(let r): "failed(\(r))"
+        case .failed(let error): "failed(\(error))"
         }
     }
 
     public var summary: String {
         switch self {
         case .ok: "Connected"
-        case .unauthorized: "Credentials were rejected. Check the key or password in Settings."
         case .needsKeychainAccess: "Motas needs your approval to read this proxy's credential from Keychain."
+        case .failed(let error): error.summary
+        }
+    }
+}
+
+extension ProxyAccessError {
+    public var summary: String {
+        switch self {
+        case .missingCredential: "No credential is saved for this proxy. Add it in Settings."
+        case .unauthorized(let reason) where reason.isEmpty: "Credentials were rejected. Check the key or password in Settings."
+        case .unauthorized(let reason): "\(reason)."
+        case .loginLocked(let until): "9Router locked logins until \(until.formatted(date: .omitted, time: .shortened))."
+        case .offline(let reason): "Offline: \(reason)."
         case .unreachable(let reason): "Cannot reach the proxy: \(reason)."
         case .failed(let reason): "The proxy returned an error: \(reason)."
         }

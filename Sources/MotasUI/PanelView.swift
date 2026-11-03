@@ -342,11 +342,8 @@ struct AccountRow: View {
             }
         case .unavailable(let reason):
             Text(reason).font(.caption).foregroundStyle(.secondary)
-        case .failed(let reason):
+        case .failed(let reason), .rejected(let reason):
             Label(reason, systemImage: "exclamationmark.triangle.fill").font(.caption).foregroundStyle(.orange)
-        }
-        if let message = account.stateMessage {
-            Text(message).font(.caption2).foregroundStyle(.secondary)
         }
     }
 
@@ -359,7 +356,7 @@ struct AccountRow: View {
     /// One line under the account name: what is wrong, or which window ran out.
     private var note: String? {
         switch account.quota {
-        case .failed(let reason): return reason
+        case .failed(let reason), .rejected(let reason): return reason
         case .unavailable(let reason): return account.state == .disabled ? nil : reason
         case .windows(let windows):
             guard let empty = windows.first(where: { $0.remainingFraction <= 0.005 }) else { return nil }
@@ -370,6 +367,7 @@ struct AccountRow: View {
     private var noteColor: Color {
         if case .windows = account.quota { return .red }
         if case .failed = account.quota { return .orange }
+        if case .rejected = account.quota { return .orange }
         return .secondary
     }
 }

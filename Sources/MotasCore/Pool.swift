@@ -64,7 +64,7 @@ public enum Pool {
     public static func remaining(_ account: AccountSnapshot) -> Double? {
         switch account.quota {
         case .windows: account.quota.effectiveRemaining
-        case .failed: 0
+        case .failed, .rejected: 0
         case .unavailable: nil
         }
     }

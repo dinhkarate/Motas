@@ -1,105 +1,178 @@
 import Foundation
 import os
 
-/// Refreshes every enabled proxy concurrently. Keeps one adapter per proxy
-/// (so 9Router sessions are reused) and rebuilds it when its config or
-/// secret changes.
+/// Refreshes every enabled proxy concurrently and owns their state: one
+/// adapter per proxy, rebuilt when kind, URL, auth or secret changes (so
+/// 9Router sessions and login guards survive refreshes), and one
+/// `ProxyState`, reset only when kind or URL changes.
 public actor Monitor {
     private let http: any HTTPClient
-    private var adapters: [UUID: (key: String, adapter: any ProxyAdapter)] = [:]
-    /// A proxy that has not answered by then is reported unreachable, so one
-    /// slow server never delays the whole refresh.
-    let deadline: Duration
+    private let secrets: any SecretStore
+    private let now: @Sendable () -> Date
+    private var adapters: [UUID: (key: AdapterKey, adapter: any ProxyAdapter)] = [:]
+    private var states: [UUID: StateEntry]
     static let log = Logger(subsystem: "dev.motas.app", category: "refresh")
 
-    public init(http: any HTTPClient = URLSessionHTTPClient(), deadline: Duration = .seconds(60)) {
-        self.http = http
-        self.deadline = deadline
+    private struct AdapterKey: Equatable {
+        var kind: ProxyKind
+        var baseURL: URL
+        var auth: ProxyAuth
+        var secret: String?
     }
 
-    public func refresh(_ configs: [ProxyConfig], secrets: any SecretStore, now: Date = Date()) async -> Snapshot {
+    private struct StateEntry {
+        var kind: ProxyKind
+        /// nil for a seeded state: the first config of the same kind adopts it.
+        var baseURL: URL?
+        var state: ProxyState
+    }
+
+    /// `seed` is the last saved snapshot; its accounts are carried until the
+    /// first refresh that lists them again.
+    public init(http: any HTTPClient = URLSessionHTTPClient(), secrets: any SecretStore, seed: Snapshot?,
+                now: @escaping @Sendable () -> Date = Date.init) {
+        self.http = http
+        self.secrets = secrets
+        self.now = now
+        states = Dictionary((seed?.proxies ?? []).map { ($0.id, StateEntry(kind: $0.kind, state: ProxyState(seed: $0))) }) { a, _ in a }
+    }
+
+    /// Reads every enabled proxy concurrently. The secret is read without a
+    /// prompt; when Keychain wants approval, fails, or the credential is
+    /// missing, the proxy's last accounts are carried.
+    public func refresh(_ configs: [ProxyConfig], force: Bool, reason: StaticString) async -> Snapshot {
+        let now = now()
         let enabled = configs.filter(\.isEnabled)
         adapters = adapters.filter { id, _ in enabled.contains { $0.id == id } }
+        states = states.filter { id, _ in enabled.contains { $0.id == id } }
 
-        var work: [(Int, any ProxyAdapter, ProxyConfig)] = []
-        var failures: [Int: ProxySnapshot] = [:]
-        for (index, config) in enabled.enumerated() {
-            let secret: String?
+        var snapshots: [UUID: ProxySnapshot] = [:]
+        var work: [(config: ProxyConfig, adapter: any ProxyAdapter, state: ProxyState)] = []
+        for config in enabled {
+            let state = state(for: config)
+            let health: ProxyHealth
             do {
-                secret = try secrets.secret(for: config.id, interactive: false)
+                let secret = try secrets.secret(for: config.id, interactive: false)
+                if config.auth.needsSecret, secret?.isEmpty != false {
+                    health = .failed(.missingCredential)
+                } else {
+                    work.append((config, adapter(for: config, secret: secret), state))
+                    continue
+                }
             } catch SecretStoreError.needsApproval {
-                failures[index] = ProxySnapshot(id: config.id, name: config.name, kind: config.kind, fetchedAt: now,
-                                                health: .needsKeychainAccess, accounts: [])
-                continue
+                health = .needsKeychainAccess
             } catch {
-                failures[index] = ProxySnapshot(id: config.id, name: config.name, kind: config.kind, fetchedAt: now,
-                                                health: .failed("Keychain: \(error)"), accounts: [])
-                continue
+                health = .failed(.failed("Keychain: \(error)"))
             }
-            let key = "\(config.kind)|\(config.baseURL.absoluteString)|\(config.name)|\((secret ?? "").hashValue)"
-            if adapters[config.id]?.key != key {
-                adapters[config.id] = (key, ProxyAdapters.make(config, secret: secret, http: http))
-            }
-            work.append((index, adapters[config.id]!.adapter, config))
+            let snapshot = state.carried(health, config: config, now: now)
+            snapshots[config.id] = snapshot
+            Self.log.notice("\(config.name, privacy: .private): \(health.logLabel, privacy: .public), carried \(snapshot.accounts.count) (\(reason.description, privacy: .public))")
         }
 
-        let started = ContinuousClock.now
-        let deadline = self.deadline
-        let fetched = await withTaskGroup(of: (Int, ProxySnapshot).self) { group in
-            for (index, adapter, config) in work {
-                group.addTask { (index, await Self.fetch(adapter, config: config, now: now, deadline: deadline)) }
-            }
-            var out: [Int: ProxySnapshot] = [:]
-            for await (index, snap) in group { out[index] = snap }
-            return out
-        }
-        let all = fetched.merging(failures) { a, _ in a }
-        let snapshot = Snapshot(fetchedAt: now, proxies: all.keys.sorted().map { all[$0]! })
-        let summary = snapshot.proxies.map { "\($0.name)=\($0.health.logLabel)/\($0.accounts.count)" }.joined(separator: " ")
-        let d = ContinuousClock.now - started
-        let elapsed = "\(d.components.seconds * 1000 + d.components.attoseconds / 1_000_000_000_000_000) ms"
-        Self.log.notice("refresh \(snapshot.proxies.count) proxies in \(elapsed, privacy: .public): \(summary, privacy: .public)")
-        return snapshot
-    }
-
-    /// Runs one adapter against the deadline; whichever finishes first wins.
-    /// The loser is cancelled and not awaited, so an adapter that ignores
-    /// cancellation cannot hold the refresh past the deadline.
-    static func fetch(_ adapter: any ProxyAdapter, config: ProxyConfig, now: Date, deadline: Duration) async -> ProxySnapshot {
-        let timedOut = ProxySnapshot(id: config.id, name: config.name, kind: config.kind, fetchedAt: now,
-                                     health: .unreachable("No answer within \(deadline.formatted())"), accounts: [])
-        let first = FirstResult<ProxySnapshot>()
-        return await withCheckedContinuation { continuation in
-            first.continuation = continuation
-            let work = Task { first.resume(with: await adapter.fetch()) }
-            Task {
-                try? await Task.sleep(for: deadline)
-                if first.resume(with: timedOut) {
-                    work.cancel()
-                    log.error("\(config.name, privacy: .public) gave no answer within \(deadline)")
+        let outcomes = await withTaskGroup(of: (Int, ReadOutcome, Duration).self) { group in
+            for (index, item) in work.enumerated() {
+                group.addTask {
+                    let started = ContinuousClock.now
+                    let outcome = await ProxyRead.run(item.adapter, state: item.state, now: now, force: force)
+                    return (index, outcome, started.duration(to: .now))
                 }
             }
+            return await group.reduce(into: [(Int, ReadOutcome, Duration)]()) { $0.append($1) }
+        }
+        for (index, outcome, elapsed) in outcomes {
+            let config = work[index].config
+            var state = work[index].state
+            let snapshot = state.apply(outcome, config: config, now: now)
+            states[config.id] = StateEntry(kind: config.kind, baseURL: config.baseURL, state: state)
+            snapshots[config.id] = snapshot
+            log(config, snapshot, outcome, elapsed: elapsed, reason: reason)
+        }
+        return Snapshot(fetchedAt: now, proxies: enabled.compactMap { snapshots[$0.id] })
+    }
+
+    /// Lists an unsaved config once, for Settings' "Test connection".
+    public func test(_ config: ProxyConfig, secret: String?) async -> Result<[AccountDescriptor], ProxyAccessError> {
+        do {
+            return .success(try await ProxyAdapters.make(config, secret: secret, http: http, now: now).listAccounts())
+        } catch {
+            return .failure(ProxyAccessError(error))
         }
     }
 
-    /// One-off read with an unsaved config, for Settings' "Test connection".
-    public func test(_ config: ProxyConfig, secret: String?) async -> ProxySnapshot {
-        await ProxyAdapters.make(config, secret: secret, http: http).fetch()
+    private func adapter(for config: ProxyConfig, secret: String?) -> any ProxyAdapter {
+        let key = AdapterKey(kind: config.kind, baseURL: config.baseURL, auth: config.auth, secret: secret)
+        if let entry = adapters[config.id], entry.key == key { return entry.adapter }
+        let adapter = ProxyAdapters.make(config, secret: secret, http: http, now: now)
+        adapters[config.id] = (key, adapter)
+        return adapter
+    }
+
+    /// The proxy's state, reset when its kind or URL changed.
+    private func state(for config: ProxyConfig) -> ProxyState {
+        var entry = states[config.id] ?? StateEntry(kind: config.kind, state: ProxyState(seed: nil))
+        if entry.kind != config.kind || (entry.baseURL ?? config.baseURL) != config.baseURL {
+            entry.state = ProxyState(seed: nil)
+        }
+        states[config.id] = StateEntry(kind: config.kind, baseURL: config.baseURL, state: entry.state)
+        return entry.state
+    }
+
+    /// One line per proxy; the name is private and no secret is ever logged.
+    private func log(_ config: ProxyConfig, _ snapshot: ProxySnapshot, _ outcome: ReadOutcome, elapsed: Duration, reason: StaticString) {
+        let reads = Array(outcome.reads.values)
+        func count(_ matches: (UsageReading) -> Bool) -> Int { reads.filter(matches).count }
+        let ok = count { if case .windows = $0 { true } else { false } }
+        let unmetered = count { if case .unavailable = $0 { true } else { false } }
+        let rejected = count { if case .failed(let f) = $0, f.kind == .credentialRejected { true } else { false } }
+        let listed = (try? outcome.list.get())?.count ?? 0
+        let reused = max(0, listed - reads.count - outcome.notStarted)
+        let ms = Int(elapsed / .milliseconds(1))
+        Self.log.notice("\(config.name, privacy: .private): \(snapshot.health.logLabel, privacy: .public), listed \(listed) read \(reads.count) ok \(ok) failed \(reads.count - ok - unmetered - rejected) rejected \(rejected) unmetered \(unmetered) reused \(reused) not started \(outcome.notStarted) in \(ms) ms (\(reason.description, privacy: .public))")
     }
 }
 
-/// Resumes a continuation exactly once, with whichever value arrives first.
-final class FirstResult<T: Sendable>: @unchecked Sendable {
-    private let lock = NSLock()
-    var continuation: CheckedContinuation<T, Never>?
-
-    @discardableResult
-    func resume(with value: T) -> Bool {
-        let c: CheckedContinuation<T, Never>? = lock.withLock {
-            defer { continuation = nil }
-            return continuation
+/// One refresh of one proxy, bounded at the source: a read starts only while
+/// less than `budget` has elapsed and no read has aborted, and the client
+/// caps each request at 20 s. There is no outer deadline, cancellation or
+/// timer, so the worst case is the budget plus 20 s.
+enum ProxyRead {
+    static func run<C: Clock>(_ adapter: any ProxyAdapter, state: ProxyState, now: Date, force: Bool,
+                              budget: Duration = .seconds(40), clock: C = ContinuousClock()) async -> ReadOutcome
+    where C.Duration == Duration {
+        let start = clock.now
+        let list: [AccountDescriptor]
+        do {
+            list = try await adapter.listAccounts()
+        } catch {
+            return ReadOutcome(list: .failure(ProxyAccessError(error)), reads: [:], abort: nil, notStarted: 0)
         }
-        c?.resume(returning: value)
-        return c != nil
+        let due = state.due(list, now: now, force: force)
+        let stop = OSAllocatedUnfairLock(initialState: Stop())
+        let readings = await boundedMap(due, limit: 4) { account -> UsageReading? in
+            let starts = stop.withLock { state in
+                guard state.abort == nil else { return false }
+                guard start.duration(to: clock.now) < budget else {
+                    state.notStarted += 1
+                    return false
+                }
+                return true
+            }
+            guard starts else { return nil }
+            do {
+                return try await adapter.readUsage(account, force: force)
+            } catch {
+                stop.withLock { $0.abort = $0.abort ?? ProxyAccessError(error) }
+                return nil
+            }
+        }
+        var reads: [String: UsageReading] = [:]
+        for (account, reading) in zip(due, readings) { reads[account.id] = reading }
+        let ended = stop.withLock { $0 }
+        return ReadOutcome(list: .success(list), reads: reads, abort: ended.abort, notStarted: ended.notStarted)
+    }
+
+    private struct Stop: Sendable {
+        var abort: ProxyAccessError?
+        var notStarted = 0
     }
 }

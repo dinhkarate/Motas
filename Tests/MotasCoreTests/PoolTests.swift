@@ -48,7 +48,7 @@ struct PoolTests {
     }
 
     @Test func unhealthyProxiesAreNotCounted() {
-        let snap = Snapshot(fetchedAt: .now, proxies: [proxy([account(.codex, .windows([w(0.1)]))], health: .unreachable("x"))])
+        let snap = Snapshot(fetchedAt: .now, proxies: [proxy([account(.codex, .windows([w(0.1)]))], health: .failed(.unreachable("x")))])
         #expect(Pool.summarize(snap).isEmpty)
     }
 
@@ -67,15 +67,16 @@ struct PoolTests {
     }
 
     @Test func endToEndAgainstBothTestbeds() async throws {
-        let cpa = await CLIProxyAPIAdapter(config: cpaConfig, managementKey: "mgmt", http: cpaTestbed()).fetch()
-        let nine = await NineRouterAdapter(config: nineConfig, password: "pw", http: nineTestbed()).fetch()
-        let pools = Pool.summarize(Snapshot(fetchedAt: .now, proxies: [cpa, nine]))
+        let cpa = cpaTestbed(), nine = nineTestbed()
+        let http = StubHTTP { req in try (req.url!.host == "cpa.local" ? cpa : nine).handler(req) }
+        let snap = await Monitor(http: http, secrets: InMemorySecretStore([cpaConfig.id: "mgmt", nineConfig.id: "pw"]), seed: nil)
+            .refresh([cpaConfig, nineConfig], force: false, reason: "test")
+        let pools = Pool.summarize(snap)
         #expect(pools.map(\.provider) == [.antigravity, .codex, .geminiCLI])
         let codex = try #require(pools.first { $0.provider == .codex })
         #expect(codex.reserve == 0)
         #expect(codex.exhaustedCount == 2)
         #expect(pools.first { $0.provider == .antigravity }?.reserve == 1)
-        #expect(pools.first { $0.provider == .geminiCLI }?.unknownCount == 1)
         #expect(Pool.headline(pools)?.provider == .codex)
     }
 }

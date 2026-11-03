@@ -48,7 +48,7 @@ func run() async {
         try? model.save(ProxyConfig(name: "obsession CPA", kind: .cliProxyAPI, baseURL: cpa), secret: env["MOTAS_CPA_KEY"])
     }
     if let nine = env["MOTAS_9R_URL"].flatMap(URL.init(string:)) {
-        try? model.save(ProxyConfig(name: "obsession 9Router", kind: .nineRouter, baseURL: nine), secret: env["MOTAS_9R_PASSWORD"])
+        try? model.save(ProxyConfig(name: "obsession 9Router", kind: .nineRouter, baseURL: nine, auth: .password), secret: env["MOTAS_9R_PASSWORD"])
     }
     await model.refresh()
     for dark in [false, true] {
@@ -67,7 +67,7 @@ func run() async {
     }
     if let first = model.settings.proxies.first {
         let editor = ProxyEditor(model: model, original: first, isNew: false, dismiss: {},
-                                 initialTestResult: model.snapshot.proxies.first)
+                                 initialTestResult: await model.test(first, secret: nil))
         render(editor, "editor", to: out, dark: false)
     }
 }

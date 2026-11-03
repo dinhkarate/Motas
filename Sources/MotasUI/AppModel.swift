@@ -54,8 +54,8 @@ public final class AppModel: ObservableObject {
         historyStore = HistoryStore(url: paths.history)
         snapshotURL = paths.snapshot
         self.secrets = secrets
-        monitor = Monitor(http: http)
         self.notifier = notifier
+        let settings: MotasSettings
         do {
             settings = try settingsStore.load()
         } catch {
@@ -63,12 +63,15 @@ public final class AppModel: ObservableObject {
             appError = "settings.json could not be read and was left untouched: \(error.localizedDescription)"
         }
         // Last real snapshot, shown with its age until the first refresh lands.
-        snapshot = SharedSnapshot.load(from: paths.snapshot).map { $0.snapshot } ?? .empty
+        var snapshot = SharedSnapshot.load(from: paths.snapshot).map { $0.snapshot } ?? .empty
         if !settings.proxies.isEmpty {
             snapshot.proxies = snapshot.proxies.filter { p in settings.proxies.contains { $0.id == p.id && $0.isEnabled } }
         } else {
             snapshot = .empty
         }
+        self.settings = settings
+        self.snapshot = snapshot
+        monitor = Monitor(http: http, secrets: secrets, seed: snapshot)
         pools = Pool.summarize(snapshot)
         history = historyStore.load()
         // Started here, not from a view: a MenuBarExtra label's .task never runs.
@@ -118,7 +121,7 @@ public final class AppModel: ObservableObject {
             pools = []
             return
         }
-        let current = await monitor.refresh(settings.proxies, secrets: secrets)
+        let current = await monitor.refresh(settings.proxies, force: false, reason: "refresh")
         snapshot = current
         pools = Pool.summarize(current)
         if settings.notificationsEnabled {
@@ -193,7 +196,7 @@ public final class AppModel: ObservableObject {
                                            body: "This is what a low-quota or proxy-down alert looks like.")])
     }
 
-    public func test(_ proxy: ProxyConfig, secret: String?) async -> ProxySnapshot {
+    public func test(_ proxy: ProxyConfig, secret: String?) async -> Result<[AccountDescriptor], ProxyAccessError> {
         var resolved = secret
         if resolved == nil {
             let secrets = self.secrets, id = proxy.id

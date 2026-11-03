@@ -1,0 +1,21 @@
+{
+  "lowReserveThreshold" : 0.3,
+  "notificationsEnabled" : true,
+  "proxies" : [
+    {
+      "baseURL" : "https:\/\/router.example.com\/",
+      "id" : "6A1E2D3C-4B5A-4978-8695-A4B3C2D1E0F1",
+      "isEnabled" : true,
+      "kind" : "nineRouter",
+      "name" : "Home 9Router"
+    },
+    {
+      "baseURL" : "http:\/\/192.168.1.20:8317",
+      "id" : "7B2F3E4D-5C6B-4A89-9706-B5C4D3E2F102",
+      "isEnabled" : true,
+      "kind" : "cliProxyAPI",
+      "name" : "Office CPA"
+    }
+  ],
+  "refreshInterval" : 600
+}
