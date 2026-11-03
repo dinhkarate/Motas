@@ -31,12 +31,22 @@ public struct Provider: RawRepresentable, Hashable, Codable, Sendable, Comparabl
     public static let antigravity = Provider(rawValue: "antigravity")
     public static let geminiCLI = Provider(rawValue: "gemini-cli")
 
-    public var displayName: String {
+    public var displayName: String { displayName(hint: nil) }
+
+    /// `hint` is the proxy's name for an OpenAI- or Anthropic-compatible node
+    /// (`AccountSnapshot.displayHint`); every such node is its own provider id.
+    public func displayName(hint: String?) -> String {
         switch rawValue {
         case "codex": "Codex"
         case "claude": "Claude"
         case "antigravity": "Antigravity"
         case "gemini-cli": "Gemini CLI"
+        case "xai": "xAI"
+        case "openrouter": "OpenRouter"
+        case "qoder": "Qoder"
+        case "chutes": "Chutes"
+        case _ where rawValue.hasPrefix("openai-compatible-"): hint ?? "OpenAI-compatible"
+        case _ where rawValue.hasPrefix("anthropic-compatible-"): hint ?? "Anthropic-compatible"
         default: rawValue.prefix(1).uppercased() + rawValue.dropFirst()
         }
     }

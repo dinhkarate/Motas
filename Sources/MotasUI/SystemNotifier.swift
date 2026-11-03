@@ -37,7 +37,7 @@ public struct SystemNotifier: Notifier {
                 content.title = alert.title
                 content.body = alert.body
                 content.sound = .default
-                try await center.add(UNNotificationRequest(identifier: UUID().uuidString, content: content, trigger: nil))
+                try await center.add(UNNotificationRequest(identifier: alert.identifier, content: content, trigger: nil))
             }
             return .delivered
         } catch {

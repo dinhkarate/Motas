@@ -158,6 +158,7 @@ struct LegacyDecodingTests {
     @Test func snapshotFrom0_2() throws {
         let shared = try #require(SharedSnapshot.load(from: Fixture.url("snapshot_v0.2", dir: "legacy")))
         #expect(shared.threshold == 0.3)
+        #expect(shared.pools.isEmpty && shared.headlineID == nil && shared.savedAt == shared.snapshot.fetchedAt)
         let proxies = shared.snapshot.proxies
         #expect(proxies.map(\.health) == [.ok, .ok, .failed(.unauthorized("")), .failed(.unreachable("Timed out")),
                                           .needsKeychainAccess, .failed(.failed("HTTP 502"))])
@@ -183,8 +184,15 @@ struct LegacyDecodingTests {
         #expect(ProxyConfig(name: "new", kind: .cliProxyAPI, baseURL: URL(string: "https://c.example.com")!).auth == .managementKey)
     }
 
-    @Test func historyFixtureExists() {
-        #expect(HistoryStore(url: Fixture.url("history_v0.2", dir: "legacy")).load().count == 4)
+    /// Provider-keyed samples are dropped: their means are not comparable with tiered pools.
+    @Test func historyFrom0_2() throws {
+        #expect(HistoryStore(url: Fixture.url("history_v0.2", dir: "legacy")).load().isEmpty)
+        let store = HistoryStore(url: tempURL("history.json"))
+        try FileManager.default.createDirectory(at: store.url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try FileManager.default.copyItem(at: Fixture.url("history_v0.2", dir: "legacy"), to: store.url)
+        let pool = PoolSummary(key: PoolKey(provider: .codex, tier: "free", group: ""), title: "Codex", displayName: "Codex · Free",
+                               reserve: 0.5)
+        #expect(try store.record([pool], at: t0, interval: 300) == [PoolSample(at: t0, pool: "codex|free|", reserve: 0.5)])
     }
 
     @Test(arguments: [ProxyHealth.ok, .needsKeychainAccess, .failed(.missingCredential), .failed(.unauthorized("Wrong password")),

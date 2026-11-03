@@ -1489,3 +1489,25 @@ own the remaining work; do not reach ahead.
 - S1: The login 429 body's `retryAfter` is read as seconds (the §1.8 lockout
   steps run from 30 s to 30 min). A `Retry-After` header may be seconds or an
   HTTP date.
+- S2: A rejected account keeps no windows, so it joins every pool of its
+  provider and tier but never creates one. When every account of a provider
+  and tier is rejected (production Qoder), there is no pool; the accounts
+  show in their proxy section and in the rejected alert.
+- S2: `.limit` windows without a period (Gemini CLI models) add to no lane,
+  so such a pool has a reserve and no lanes. §4.5 gives no lane order; lanes
+  follow primary, secondary, 5h, daily, weekly, other periods alphabetically,
+  then "models".
+- S2: An exhausted account that is also cooling down comes back at the later
+  of its window recovery (§4.4 step 5) and `cooldownUntil`.
+- S2: `QuotaAlert` splits the §5 texts into a title and a body: "Codex is
+  low" / "18% · 3/9 usable · next back 17 Nov · 3 reset credits", and "Codex:
+  no usable account" / "Until 17 Nov · 3 reset credits". Days use the en_GB
+  "17 Nov" form in the user's time zone.
+- S2: Proxy down has no time confirmation: two failed refreshes in a row
+  already confirm it, and §5 confirms only pool conditions. `evaluate` keeps
+  its `now` parameter, but confirmation uses `snapshot.fetchedAt`, as §5
+  says.
+- S2: `SharedSnapshot.staleProxies` counts proxies whose health is not `.ok`
+  (their accounts are carried). `unhealthyProxies` counts
+  `ProxySnapshot.isUnhealthy`, the §9.1 ⚠︎ proxy rule without "while
+  online", which a saved file cannot know.

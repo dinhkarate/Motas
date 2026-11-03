@@ -28,8 +28,12 @@ struct AppModelTests {
         return StubHTTP { req in try (req.url!.host == "cpa.local" ? cpa : nine).handler(req) }
     }
 
+    /// A plist in `dir` (a suite named by a path), never the app's domain.
+    var preferences: UIPreferences { UIPreferences(defaults: UserDefaults(suiteName: dir.appendingPathComponent("preferences").path)!) }
+
     func model(http: StubHTTP? = nil, secrets: InMemorySecretStore = .init(), notifier: RecordingNotifier = .init()) -> AppModel {
-        AppModel(paths: paths, secrets: secrets, http: http ?? testbeds(), notifier: notifier, autoRefresh: false)
+        AppModel(paths: paths, secrets: secrets, http: http ?? testbeds(), notifier: notifier, preferences: preferences,
+                 autoRefresh: false)
     }
 
     @Test func unconfiguredShowsEmptyStateAndMakesNoRequests() async {
@@ -53,8 +57,11 @@ struct AppModelTests {
         let saved = try String(contentsOf: paths.settings, encoding: .utf8)
         #expect(!saved.contains("mgmt") && !saved.contains("\"pw\""))
         #expect(m.snapshot.proxies.map(\.name) == ["Testbed CPA", "Testbed 9Router"])
-        #expect(m.headline?.provider == .codex)
-        #expect(m.headline?.reserve == 0)
+        // CPA's and 9Router's Codex Free accounts are one pool, in one 30-day lane.
+        #expect(m.headline?.id == "codex|free|")
+        #expect(m.headline?.members == 2 && m.headline?.reserve == 0)
+        #expect(m.headline?.lanes.map(\.label) == ["30-day"])
+        #expect(SharedSnapshot.load(from: paths.snapshot)?.headlineID == "codex|free|")
     }
 
     @Test func savingWithoutSecretKeepsStoredOne() throws {
@@ -66,6 +73,17 @@ struct AppModelTests {
         try m.save(renamed, secret: nil)
         #expect(try secrets.secret(for: cpaConfig.id) == "mgmt")
         #expect(m.settings.proxies.map(\.name) == ["Renamed"])
+    }
+
+    @Test func savingKeepsAProxyTheCLIAdded() throws {
+        let m = model()
+        try m.save(cpaConfig, secret: nil)
+        try SettingsStore(url: paths.settings).update { $0.proxies.append(nineConfig) }
+        var renamed = cpaConfig
+        renamed.name = "Renamed"
+        try m.save(renamed, secret: nil)
+        #expect(m.settings.proxies.map(\.name) == ["Renamed", "Testbed 9Router"])
+        #expect(try SettingsStore(url: paths.settings).load() == m.settings)
     }
 
     @Test func removingProxyDeletesItsSecret() throws {
@@ -103,6 +121,8 @@ struct AppModelTests {
         try Data("{broken".utf8).write(to: paths.settings)
         let m = model()
         #expect(m.appError?.contains("settings.json") == true)
+        #expect(throws: (any Error).self) { try m.save(cpaConfig, secret: nil) }
+        #expect(m.settings.proxies.isEmpty)
         #expect(try Data(contentsOf: paths.settings) == Data("{broken".utf8))
     }
 
@@ -136,7 +156,9 @@ struct AppModelTests {
         #expect(notifier.delivered.isEmpty)       // first refresh never alerts
         down.value = true
         await m.refresh()
-        #expect(notifier.delivered.map(\.kind) == [.proxyDown(cpaConfig.id)])
+        #expect(notifier.delivered.isEmpty)       // one failed refresh is a blip
+        await m.refresh()
+        #expect(notifier.delivered.map(\.identifier) == ["proxyDown:\(cpaConfig.id.uuidString)"])
         await m.refresh()
         #expect(notifier.delivered.count == 1)    // staying down does not re-alert
     }

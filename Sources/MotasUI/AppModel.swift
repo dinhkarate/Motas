@@ -26,7 +26,8 @@ public final class AppModel: ObservableObject {
     let snapshotURL: URL
     let monitor: Monitor
     let notifier: any Notifier
-    private var previous: Snapshot?
+    let preferences: UIPreferences
+    private var alerts = AlertEngine()
     private var loop: Task<Void, Never>?
     private var activity: NSObjectProtocol?
     private var pendingRefresh = false
@@ -48,8 +49,9 @@ public final class AppModel: ObservableObject {
 
     public init(paths: Paths = .standard, secrets: any SecretStore = KeychainSecretStore(),
                 http: any HTTPClient = URLSessionHTTPClient(), notifier: any Notifier = SystemNotifier(),
-                autoRefresh: Bool = true) {
+                preferences: UIPreferences = UIPreferences(), autoRefresh: Bool = true) {
         self.autoRefresh = autoRefresh
+        self.preferences = preferences
         settingsStore = SettingsStore(url: paths.settings)
         historyStore = HistoryStore(url: paths.history)
         snapshotURL = paths.snapshot
@@ -60,7 +62,7 @@ public final class AppModel: ObservableObject {
             settings = try settingsStore.load()
         } catch {
             settings = MotasSettings()
-            appError = "settings.json could not be read and was left untouched: \(error.localizedDescription)"
+            appError = "settings.json is unreadable: \(error.localizedDescription)"
         }
         // Last real snapshot, shown with its age until the first refresh lands.
         var snapshot = SharedSnapshot.load(from: paths.snapshot).map { $0.snapshot } ?? .empty
@@ -72,14 +74,14 @@ public final class AppModel: ObservableObject {
         self.settings = settings
         self.snapshot = snapshot
         monitor = Monitor(http: http, secrets: secrets, seed: snapshot)
-        pools = Pool.summarize(snapshot)
+        pools = Pool.summarize(snapshot, now: .now, staleLimit: settings.staleLimit)
         history = historyStore.load()
         // Started here, not from a view: a MenuBarExtra label's .task never runs.
         if autoRefresh { start() }
     }
 
     public var isConfigured: Bool { settings.proxies.contains(where: \.isEnabled) }
-    public var headline: PoolSummary? { Pool.headline(pools) }
+    public var headline: PoolSummary? { Pool.headline(pools, pinned: preferences.menuBarPool) }
 
     public func start() {
         // A background menu bar app gets App Nap, which stretches the refresh
@@ -122,16 +124,17 @@ public final class AppModel: ObservableObject {
             return
         }
         let current = await monitor.refresh(settings.proxies, force: false, reason: "refresh")
+        let now = Date.now
         snapshot = current
-        pools = Pool.summarize(current)
-        if settings.notificationsEnabled {
-            let alerts = AlertRules.alerts(previous: previous, current: current, threshold: settings.lowReserveThreshold)
-            if !alerts.isEmpty { await notifier.deliver(alerts) }
-        }
-        previous = current
+        pools = Pool.summarize(current, now: now, staleLimit: settings.staleLimit)
+        // Evaluated even with notifications off, so turning them on sends nothing stale.
+        let due = alerts.evaluate(current, pools: pools, threshold: settings.lowReserveThreshold,
+                                  refreshInterval: settings.clampedRefreshInterval, online: true, now: now)
+        if settings.notificationsEnabled, !due.isEmpty { await notifier.deliver(due) }
         do {
-            history = try historyStore.record(pools, at: current.fetchedAt)
-            try SharedSnapshot(snapshot: current, threshold: settings.lowReserveThreshold).save(to: snapshotURL)
+            history = try historyStore.record(pools, at: current.fetchedAt, interval: settings.clampedRefreshInterval)
+            try SharedSnapshot(snapshot: current, threshold: settings.lowReserveThreshold, pools: pools, headlineID: headline?.id,
+                               savedAt: now).save(to: snapshotURL)
             appError = nil
         } catch {
             appError = "Could not save history: \(error.localizedDescription)"
@@ -159,30 +162,24 @@ public final class AppModel: ObservableObject {
     /// Saves (adds or replaces) a proxy. `secret == nil` keeps the stored one.
     public func save(_ proxy: ProxyConfig, secret: String?) throws {
         if let secret { try secrets.setSecret(secret, for: proxy.id) }
-        var next = settings
-        if let index = next.proxies.firstIndex(where: { $0.id == proxy.id }) {
-            next.proxies[index] = proxy
-        } else {
-            next.proxies.append(proxy)
+        try update { settings in
+            if let index = settings.proxies.firstIndex(where: { $0.id == proxy.id }) {
+                settings.proxies[index] = proxy
+            } else {
+                settings.proxies.append(proxy)
+            }
         }
-        try apply(next)
     }
 
     public func remove(_ proxy: UUID) throws {
-        var next = settings
-        next.proxies.removeAll { $0.id == proxy }
-        try apply(next)
+        try update { $0.proxies.removeAll { $0.id == proxy } }
         try secrets.setSecret(nil, for: proxy)
     }
 
+    /// Writes through `SettingsStore.update`, so what the CLI saved meanwhile
+    /// is kept and a corrupt file is never overwritten, and adopts the result.
     public func update(_ change: (inout MotasSettings) -> Void) throws {
-        var next = settings
-        change(&next)
-        try apply(next)
-    }
-
-    private func apply(_ next: MotasSettings) throws {
-        try settingsStore.save(next)
+        let next = try settingsStore.update(change)
         let intervalChanged = next.clampedRefreshInterval != settings.clampedRefreshInterval
         settings = next
         appError = nil
@@ -192,7 +189,7 @@ public final class AppModel: ObservableObject {
 
     /// Sends a sample alert so the user can check Notification Center settings.
     public func sendTestNotification() async -> NotificationDelivery {
-        await notifier.deliver([QuotaAlert(kind: .poolLow(.codex), title: "Motas test notification",
+        await notifier.deliver([QuotaAlert(kind: .poolLow, key: "test", title: "Motas test notification",
                                            body: "This is what a low-quota or proxy-down alert looks like.")])
     }
 

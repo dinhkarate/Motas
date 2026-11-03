@@ -17,7 +17,7 @@ public struct HistoryView: View {
             } else {
                 Chart(model.history, id: \.self) { sample in
                     LineMark(x: .value("Time", sample.at), y: .value("Reserve", sample.reserve))
-                        .foregroundStyle(by: .value("Provider", sample.provider.displayName))
+                        .foregroundStyle(by: .value("Pool", title(sample.pool)))
                         .interpolationMethod(.stepEnd)
                         .symbol(.circle)
                         .symbolSize(model.history.count < 50 ? 20 : 0)
@@ -36,4 +36,7 @@ public struct HistoryView: View {
         .frame(minWidth: 560, minHeight: 320)
         .environment(\.locale, Design.locale)
     }
+
+    /// The pool's title, else its id (a pool that no longer exists).
+    private func title(_ pool: String) -> String { model.pools.first { $0.id == pool }?.title ?? pool }
 }

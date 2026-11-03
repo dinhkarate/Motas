@@ -5,8 +5,8 @@ import SwiftUI
 
 // MARK: Menu bar
 
-/// Menu bar label: a two-bar gauge (the two lowest pools) plus the lowest pool
-/// as text. Drawn with AppKit into a template NSImage — a MenuBarExtra label
+/// Menu bar label: a two-bar gauge (the headline and the next pool) plus the
+/// headline as text. Drawn with AppKit into a template NSImage — a MenuBarExtra label
 /// must stay a plain Image/Text (ImageRenderer there crashes).
 public struct MenuBarLabel: View {
     @ObservedObject var model: AppModel
@@ -14,13 +14,13 @@ public struct MenuBarLabel: View {
     public init(model: AppModel) { self.model = model }
 
     public var body: some View {
-        let measured = model.pools.filter { $0.reserve != nil }.sorted { $0.reserve! < $1.reserve! }
+        let gauge = Pool.gauge(model.pools, pinned: model.preferences.menuBarPool)
         let problem = model.snapshot.proxies.contains { !$0.health.isOK }
         HStack(spacing: 4) {
-            Image(nsImage: MenuBarGauge.image(top: measured.first?.reserve, bottom: measured.dropFirst().first?.reserve,
-                                              dimmed: problem || measured.isEmpty))
-            if let pool = measured.first, let reserve = pool.reserve {
-                Text("\(problem ? "⚠︎ " : "")\(pool.provider.displayName) \(Design.percent(reserve))").monospacedDigit()
+            Image(nsImage: MenuBarGauge.image(top: gauge.first?.reserve, bottom: gauge.dropFirst().first?.reserve,
+                                              dimmed: problem || gauge.first?.reserve == nil))
+            if let pool = gauge.first, let reserve = pool.reserve {
+                Text("\(problem ? "⚠︎ " : "")\(pool.title) \(Design.percent(reserve))").monospacedDigit()
             } else if problem {
                 Text("⚠︎")
             }
@@ -98,8 +98,10 @@ public struct PanelView: View {
         .environment(\.locale, Design.locale)
     }
 
-    private var providers: [Provider] { model.pools.map(\.provider) }
-    private var visiblePools: [PoolSummary] { model.pools.filter { filter == nil || $0.provider == filter } }
+    private var providers: [Provider] {
+        model.pools.reduce(into: []) { if !$0.contains($1.key.provider) { $0.append($1.key.provider) } }
+    }
+    private var visiblePools: [PoolSummary] { model.pools.filter { filter == nil || $0.key.provider == filter } }
 
     private var header: some View {
         HStack(alignment: .firstTextBaseline) {
@@ -161,7 +163,7 @@ public struct PanelView: View {
 
 // MARK: Pool card
 
-/// One provider across every proxy: big reserve, bar, usable count, next reset.
+/// One pool across every proxy: big reserve, bar, usable count, next reset.
 struct PoolCard: View {
     let pool: PoolSummary
     let threshold: Double
@@ -169,8 +171,8 @@ struct PoolCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 8) {
-                ProviderBadge(pool.provider, size: 18)
-                Text(pool.provider.displayName).font(.system(size: 13, weight: .semibold))
+                ProviderBadge(pool.key.provider, size: 18)
+                Text(pool.title).font(.system(size: 13, weight: .semibold))
                 Spacer()
                 Text(detail).font(.caption).foregroundStyle(.secondary).monospacedDigit().lineLimit(1)
             }
@@ -180,7 +182,7 @@ struct PoolCard: View {
                         .font(.system(size: 22, weight: .semibold, design: .rounded)).monospacedDigit()
                         .foregroundStyle(Design.text(reserve, threshold: threshold))
                         .frame(minWidth: 58, alignment: .leading)
-                    CapsuleBar(reserve, color: Design.fill(reserve, provider: pool.provider, threshold: threshold), height: 6)
+                    CapsuleBar(reserve, color: Design.fill(reserve, provider: pool.key.provider, threshold: threshold), height: 6)
                 }
             } else {
                 Text("No quota figures reported").font(.callout).foregroundStyle(.secondary)
@@ -192,14 +194,13 @@ struct PoolCard: View {
 
     private var detail: String {
         var parts = [usable]
-        if let reset = pool.nextReset { parts.append("reset \(Design.relative(reset))") }
+        if let reset = pool.nextResetAt { parts.append("reset \(Design.relative(reset))") }
         return parts.filter { !$0.isEmpty }.joined(separator: " · ")
     }
 
     private var usable: String {
-        var parts: [String] = []
-        if pool.measuredCount > 0 { parts.append("\(pool.measuredCount - pool.exhaustedCount)/\(pool.measuredCount) usable") }
-        if pool.unknownCount > 0 { parts.append("\(pool.unknownCount) unknown") }
+        var parts = ["\(pool.usable)/\(pool.members) usable"]
+        if pool.unknown > 0 { parts.append("\(pool.unknown) unknown") }
         return parts.joined(separator: " · ")
     }
 }
@@ -254,7 +255,7 @@ struct ProxySection: View {
     /// Disabled last, unknown after measured, lowest remaining first.
     private func tightestFirst(_ a: AccountSnapshot, _ b: AccountSnapshot) -> Bool {
         if (a.state == .disabled) != (b.state == .disabled) { return b.state == .disabled }
-        return (Pool.remaining(a) ?? 2) < (Pool.remaining(b) ?? 2)
+        return (a.quota.effectiveRemaining ?? 2) < (b.quota.effectiveRemaining ?? 2)
     }
 }
 
@@ -313,7 +314,7 @@ struct AccountRow: View {
                 .frame(width: 56)
             }
             Text(percentText).font(.system(size: 12, weight: .semibold)).monospacedDigit()
-                .foregroundStyle(Design.text(Pool.remaining(account), threshold: threshold))
+                .foregroundStyle(Design.text(account.quota.effectiveRemaining, threshold: threshold))
                 .frame(minWidth: 36, alignment: .trailing)
         }
         .contentShape(Rectangle())
@@ -349,7 +350,7 @@ struct AccountRow: View {
 
     private var percentText: String {
         if account.state == .disabled { return "off" }
-        guard let remaining = Pool.remaining(account) else { return "—" }
+        guard let remaining = account.quota.effectiveRemaining else { return "—" }
         return Design.percent(remaining)
     }
 
