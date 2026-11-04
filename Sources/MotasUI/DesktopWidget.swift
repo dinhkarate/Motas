@@ -130,7 +130,6 @@ struct DesktopWidgetView: View {
 
     init(model: AppModel) { self.model = model }
 
-    private var threshold: Double { model.settings.lowReserveThreshold }
     private var now: Date { model.now }
     private var cards: [DesktopCard] { model.desktopCards }
 
@@ -196,8 +195,8 @@ struct DesktopWidgetView: View {
                 case .pool(let pool):
                     PulsePoolCard(pool: pool,
                                   members: Pool.members(model.snapshot, key: pool.key, now: now,
-                                                        staleLimit: model.settings.staleLimit),
-                                  threshold: threshold)
+                                                        staleLimit: model.settings.staleLimit, basis: pool.basis),
+                                  threshold: model.settings.threshold(for: pool.id))
                 case .status(let status):
                     PulseStatusCard(status: status)
                 }

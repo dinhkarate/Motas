@@ -32,8 +32,7 @@ public struct MenuBarLabel: View {
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: .motasOpenSettings)) { _ in
-            openWindow(id: "settings")
-            NSApplication.shared.activate(ignoringOtherApps: true)
+            WindowPresenter.show("settings", using: openWindow)
         }
     }
 
@@ -80,6 +79,7 @@ public struct PanelView: View {
     @ObservedObject var model: AppModel
     @Environment(\.openWindow) private var openWindow
     @State private var filter: PoolFilter?
+    @State private var contentHeight: CGFloat = 0
 
     public init(model: AppModel) { self.model = model }
 
@@ -95,6 +95,7 @@ public struct PanelView: View {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 10) {
                         poolGrid
+                        hiddenPoolsRow
                         ForEach(model.snapshot.proxies) { proxy in
                             ProxySection(proxy: proxy, model: model, filter: filter, threshold: threshold,
                                          now: now, staleAfter: staleAfter)
@@ -104,8 +105,13 @@ public struct PanelView: View {
                                 .font(.callout).foregroundStyle(.secondary)
                         }
                     }
+                    .background(GeometryReader { Color.clear.preference(key: ContentHeightKey.self, value: $0.size.height) })
                 }
-                .frame(maxHeight: 560)
+                // A ScrollView in a menu-bar window shrinks to almost nothing:
+                // size it to its content, up to what fits under the menu bar.
+                .frame(height: contentHeight > 0 ? min(contentHeight, maxScrollHeight) : nil)
+                .frame(maxHeight: maxScrollHeight)
+                .onPreferenceChange(ContentHeightKey.self) { height in MainActor.assumeIsolated { contentHeight = height } }
             } else {
                 emptyState
             }
@@ -113,7 +119,7 @@ public struct PanelView: View {
             footer
         }
         .padding(16)
-        .frame(width: 340)
+        .frame(width: 360)
         .environment(\.locale, Design.locale)
         .onAppear { model.panelOpened() }
     }
@@ -152,6 +158,10 @@ public struct PanelView: View {
         return ("Updated \(Design.relative(model.snapshot.fetchedAt, now: now))", .secondary)
     }
 
+    private var maxScrollHeight: CGFloat {
+        min(640, max(320, (NSScreen.main?.visibleFrame.height ?? 800) - 220))
+    }
+
     private var staleAfter: TimeInterval { max(120, model.settings.clampedRefreshInterval * 1.5) }
 
     @ViewBuilder private var banners: some View {
@@ -173,22 +183,36 @@ public struct PanelView: View {
     }
 
     private var poolGrid: some View {
-        LazyVGrid(columns: [GridItem(.flexible(), spacing: 8), GridItem(.flexible(), spacing: 8)], spacing: 8) {
+        LazyVGrid(columns: [GridItem(.flexible(), spacing: 8, alignment: .top), GridItem(.flexible(), spacing: 8, alignment: .top)],
+                  alignment: .leading, spacing: 8) {
             ForEach(model.pools) { pool in
-                PoolCard(pool: pool, threshold: threshold, now: now,
-                         pinned: model.menuBarPool == pool.id, selected: filter == pool.filterKey) {
+                PoolCard(pool: pool, threshold: model.settings.threshold(for: pool.id), now: now,
+                         pinned: model.menuBarPool == pool.id, selected: filter == pool.filterKey,
+                         muted: !model.settings.options(for: pool.id).notify) {
                     filter = filter == pool.filterKey ? nil : pool.filterKey
                 }
-                .contextMenu {
-                    Button(model.menuBarPool == pool.id ? "Unpin from menu bar" : "Pin to menu bar") {
-                        model.menuBarPool = model.menuBarPool == pool.id ? nil : pool.id
+                .overlay(alignment: .topTrailing) {
+                    Menu { PoolOptionsMenu(pool: pool, model: model) } label: {
+                        Image(systemName: "ellipsis.circle").font(.system(size: 12))
                     }
-                    Button(model.isOnDesktop(poolID: pool.id) ? "Hide from desktop" : "Show on desktop") {
-                        model.toggleDesktopCard(pool.id)
-                    }
-                    .disabled(!model.isOnDesktop(poolID: pool.id) && model.desktopCards.count >= DesktopWidgetData.limit)
+                    .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
+                    .help("\(pool.title) options: warning level, which window counts, notifications")
+                    .padding(6)
+                }
+                .contextMenu { PoolOptionsMenu(pool: pool, model: model) }
+            }
+        }
+    }
+
+    @ViewBuilder private var hiddenPoolsRow: some View {
+        if !model.hiddenPools.isEmpty {
+            Menu("\(model.hiddenPools.count) hidden: \(model.hiddenPools.map(\.title).joined(separator: ", "))") {
+                ForEach(model.hiddenPools) { pool in
+                    Button("Show \(pool.title)") { model.setOptions(for: pool.id) { $0.hidden = false } }
                 }
             }
+            .menuStyle(.borderlessButton).fixedSize()
+            .font(.caption).foregroundStyle(.secondary)
         }
     }
 
@@ -206,21 +230,20 @@ public struct PanelView: View {
     }
 
     private var footer: some View {
-        HStack(spacing: 4) {
+        HStack(spacing: 2) {
             FooterButton("History", symbol: "chart.xyaxis.line") { open("history") }
-            FooterButton("Settings…", symbol: "gearshape") { open("settings") }.keyboardShortcut(",")
+            FooterButton("Settings", symbol: "gearshape") { open("settings") }.keyboardShortcut(",")
             FooterButton("Desktop", symbol: model.desktopWidgetEnabled ? "rectangle.on.rectangle.fill" : "rectangle.on.rectangle") {
                 model.desktopWidgetEnabled.toggle()
             }
             .help(model.desktopWidgetEnabled ? "Hide Model Pulse" : "Show Model Pulse on the desktop")
             Spacer()
-            FooterButton("Quit", symbol: "power") { NSApplication.shared.terminate(nil) }.keyboardShortcut("q")
+            FooterButton("Quit", symbol: "power", showsTitle: false) { NSApplication.shared.terminate(nil) }.keyboardShortcut("q")
         }
     }
 
     private func open(_ id: String) {
-        openWindow(id: id)
-        NSApplication.shared.activate(ignoringOtherApps: true)
+        WindowPresenter.show(id, using: openWindow)
     }
 }
 
@@ -275,6 +298,7 @@ struct PoolCard: View {
     let now: Date
     let pinned: Bool
     let selected: Bool
+    var muted = false
     let action: () -> Void
 
     var body: some View {
@@ -285,10 +309,12 @@ struct PoolCard: View {
                         .font(.system(size: 9, weight: .bold)).tracking(0.6)
                         .foregroundStyle(.secondary).lineLimit(1)
                     if pinned { Image(systemName: "pin.fill").font(.system(size: 7)).foregroundStyle(.tertiary) }
+                    if muted { Image(systemName: "bell.slash.fill").font(.system(size: 7)).foregroundStyle(.tertiary) }
                     Spacer(minLength: 0)
                     if pool.stale > 0 { Marker("stale", color: .orange) }
                     if pool.unknown > 0 { Marker("?", color: .secondary) }
                 }
+                .padding(.trailing, 16)   // room for the options button
                 if let reserve = pool.reserve {
                     Text(Design.percent(reserve))
                         .font(.system(size: 22, weight: .semibold, design: .rounded)).monospacedDigit()
@@ -300,7 +326,9 @@ struct PoolCard: View {
                 }
                 Text(detail).font(.system(size: 9)).foregroundStyle(.secondary)
                     .lineLimit(2).fixedSize(horizontal: false, vertical: true)
-                if pool.lanes.count > 1 {
+                if let basis {
+                    Text("By \(basis)").font(.system(size: 9)).foregroundStyle(.tertiary)
+                } else if pool.lanes.count > 1 {
                     Text(lanes).font(.system(size: 9)).foregroundStyle(.tertiary)
                         .lineLimit(2).fixedSize(horizontal: false, vertical: true)
                 }
@@ -316,8 +344,15 @@ struct PoolCard: View {
         .accessibilityLabel("\(pool.title), \(pool.reserve.map(Design.percent) ?? "unknown")")
     }
 
+    private var basis: String? {
+        guard let id = pool.basis, let lane = pool.lanes.first(where: { $0.id == id }) else { return nil }
+        return pool.lanes.filter { $0.id != id }.isEmpty ? lane.label : "\(lane.label) · " + pool.lanes.filter { $0.id != id }
+            .map { "\($0.label) \(Design.percent($0.mean))" }.joined(separator: " · ")
+    }
+
     private var detail: String {
         var parts = ["\(pool.usable)/\(pool.members) usable"]
+        if pool.rejected > 0 { parts.append("\(pool.rejected) need re-login") }
         if let back = pool.nextRecoveryAt { parts.append("back \(Design.day(back))") }
         if pool.resetCredits > 0 {
             parts.append("\(pool.resetCredits) reset credit\(pool.resetCredits == 1 ? "" : "s")")
@@ -941,20 +976,26 @@ struct Banner: View {
 struct FooterButton: View {
     let title: String
     let symbol: String
+    let showsTitle: Bool
     let action: () -> Void
     @State private var hovering = false
 
-    init(_ title: String, symbol: String, action: @escaping () -> Void) {
+    init(_ title: String, symbol: String, showsTitle: Bool = true, action: @escaping () -> Void) {
         self.title = title
         self.symbol = symbol
+        self.showsTitle = showsTitle
         self.action = action
     }
 
     var body: some View {
         Button(action: action) {
-            Image(systemName: symbol).font(.system(size: 12, weight: .medium))
-                .frame(width: 24, height: 22)
-                .background(RoundedRectangle(cornerRadius: 6).fill(Color.primary.opacity(hovering ? 0.08 : 0)))
+            HStack(spacing: 4) {
+                Image(systemName: symbol).font(.system(size: 11, weight: .medium))
+                if showsTitle { Text(title).font(.system(size: 11)) }
+            }
+            .padding(.horizontal, showsTitle ? 7 : 5).frame(height: 22)
+            .background(RoundedRectangle(cornerRadius: 6).fill(Color.primary.opacity(hovering ? 0.08 : 0)))
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .help(title)
@@ -986,6 +1027,55 @@ struct IconButton: View {
         .accessibilityLabel(help)
         .onHover { hovering = $0 }
     }
+}
+
+/// One pool's choices, for its card's ⋯ button and context menu.
+struct PoolOptionsMenu: View {
+    let pool: PoolSummary
+    @ObservedObject var model: AppModel
+
+    static let levels: [Double] = [0.05, 0.1, 0.2, 0.3, 0.5]
+
+    private var options: PoolOptions { model.settings.options(for: pool.id) }
+
+    var body: some View {
+        Section(pool.displayName) {
+            Picker("Warn below", selection: Binding<Double?>(
+                get: { options.lowReserveThreshold },
+                set: { level in model.setOptions(for: pool.id) { $0.lowReserveThreshold = level } })) {
+                Text("Default (\(Design.percent(model.settings.lowReserveThreshold)))").tag(Double?.none)
+                ForEach(Self.levels, id: \.self) { Text(Design.percent($0)).tag(Double?.some($0)) }
+            }
+            if pool.lanes.filter({ $0.id != "models" }).count > 1 {
+                Picker("Percentage from", selection: Binding<String?>(
+                    get: { options.basis },
+                    set: { basis in model.setOptions(for: pool.id) { $0.basis = basis } })) {
+                    Text("Lowest window").tag(String?.none)
+                    ForEach(pool.lanes.filter { $0.id != "models" }) { Text("\($0.label) window").tag(String?.some($0.id)) }
+                }
+            }
+            Toggle("Notifications", isOn: Binding(
+                get: { options.notify },
+                set: { on in model.setOptions(for: pool.id) { $0.notify = on } }))
+        }
+        Divider()
+        Button(model.menuBarPool == pool.id ? "Unpin from menu bar" : "Pin to menu bar") {
+            model.menuBarPool = model.menuBarPool == pool.id ? nil : pool.id
+        }
+        Button(model.isOnDesktop(poolID: pool.id) ? "Hide from desktop" : "Show on desktop") {
+            model.toggleDesktopCard(pool.id)
+        }
+        .disabled(!model.isOnDesktop(poolID: pool.id) && model.desktopCards.count >= DesktopWidgetData.limit)
+        Button("Hide \(pool.title)") {
+            if model.menuBarPool == pool.id { model.menuBarPool = nil }
+            model.setOptions(for: pool.id) { $0.hidden = true }
+        }
+    }
+}
+
+private struct ContentHeightKey: PreferenceKey {
+    static let defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = max(value, nextValue()) }
 }
 
 private struct ExpandGroupsKey: EnvironmentKey { static let defaultValue = false }

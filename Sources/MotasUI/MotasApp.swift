@@ -28,6 +28,27 @@ public struct MotasApp: App {
     }
 }
 
+/// Opens a Motas window in front, on the Space the user is on, including over
+/// a full-screen app: an accessory app's window otherwise opens on the desktop
+/// Space and stays out of sight.
+@MainActor
+enum WindowPresenter {
+    static func show(_ id: String, using openWindow: OpenWindowAction) {
+        openWindow(id: id)
+        NSApplication.shared.activate(ignoringOtherApps: true)
+        // SwiftUI creates the window on the next pass.
+        DispatchQueue.main.async {
+            let title = ["settings": "Motas Settings", "history": "Motas History"][id]
+            guard let window = NSApplication.shared.windows.first(where: {
+                $0.identifier?.rawValue.hasPrefix(id) == true || $0.title == title
+            }) else { return }
+            window.collectionBehavior.insert([.moveToActiveSpace, .fullScreenAuxiliary])
+            window.makeKeyAndOrderFront(nil)
+            window.orderFrontRegardless()
+        }
+    }
+}
+
 /// Owns the one `AppModel`, so there is never a second model, timer or Monitor.
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDelegate {

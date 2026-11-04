@@ -11,6 +11,7 @@ public struct SettingsView: View {
     public var body: some View {
         TabView {
             ProxiesTab(model: model).tabItem { Label("Proxies", systemImage: "server.rack") }
+            QuotasTab(model: model).tabItem { Label("Quotas", systemImage: "gauge.with.dots.needle.33percent") }
             GeneralTab(model: model).tabItem { Label("General", systemImage: "gearshape") }
         }
         .frame(width: 560, height: 420)
@@ -339,7 +340,7 @@ struct GeneralTab: View {
             Picker("Refresh every", selection: binding(\.refreshInterval)) {
                 ForEach(intervalOptions, id: \.self) { Text("\(Int($0 / 60)) min").tag($0) }
             }
-            Picker("Warn below", selection: binding(\.lowReserveThreshold)) {
+            Picker("Warn below (default)", selection: binding(\.lowReserveThreshold)) {
                 ForEach(thresholdOptions, id: \.self) { Text(Design.percent($0)).tag($0) }
             }
             Toggle("Notifications", isOn: binding(\.notificationsEnabled))
@@ -409,5 +410,62 @@ struct GeneralTab: View {
                 do { try model.update { $0[keyPath: keyPath] = value }; error = nil } catch { self.error = "\(error)" }
             }
         )
+    }
+}
+
+// MARK: Quotas
+
+/// Every pool's own choices: the same as its card's ⋯ menu in the panel.
+struct QuotasTab: View {
+    @ObservedObject var model: AppModel
+
+    private var pools: [PoolSummary] { model.pools + model.hiddenPools }
+
+    var body: some View {
+        Form {
+            if pools.isEmpty {
+                Text("Quotas appear here after the first refresh.").foregroundStyle(.secondary)
+            }
+            ForEach(pools) { pool in
+                Section {
+                    row(pool)
+                } header: {
+                    HStack {
+                        Text(pool.displayName)
+                        Spacer()
+                        Text(pool.reserve.map(Design.percent) ?? "—").monospacedDigit().foregroundStyle(.secondary)
+                    }
+                }
+            }
+        }
+        .formStyle(.grouped)
+    }
+
+    @ViewBuilder private func row(_ pool: PoolSummary) -> some View {
+        let options = model.settings.options(for: pool.id)
+        let lanes = pool.lanes.filter { $0.id != "models" }
+        Picker("Warn below", selection: Binding<Double?>(
+            get: { options.lowReserveThreshold },
+            set: { level in model.setOptions(for: pool.id) { $0.lowReserveThreshold = level } })) {
+            Text("Default (\(Design.percent(model.settings.lowReserveThreshold)))").tag(Double?.none)
+            ForEach(PoolOptionsMenu.levels, id: \.self) { Text(Design.percent($0)).tag(Double?.some($0)) }
+        }
+        if lanes.count > 1 {
+            Picker("Percentage from", selection: Binding<String?>(
+                get: { options.basis },
+                set: { basis in model.setOptions(for: pool.id) { $0.basis = basis } })) {
+                Text("Lowest window").tag(String?.none)
+                ForEach(lanes) { Text("\($0.label) window").tag(String?.some($0.id)) }
+            }
+        }
+        Toggle("Notifications", isOn: Binding(
+            get: { options.notify },
+            set: { on in model.setOptions(for: pool.id) { $0.notify = on } }))
+        Toggle("Show in panel, menu bar and desktop", isOn: Binding(
+            get: { !options.hidden },
+            set: { shown in
+                if !shown, model.menuBarPool == pool.id { model.menuBarPool = nil }
+                model.setOptions(for: pool.id) { $0.hidden = !shown }
+            }))
     }
 }

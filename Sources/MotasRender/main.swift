@@ -162,6 +162,7 @@ func run() async {
         render(SettingsView(model: model), "settings", to: out, dark: dark, size: CGSize(width: 560, height: 420))
         render(ProxiesTab(model: model), "settings-proxies", to: out, dark: dark, size: CGSize(width: 560, height: 420))
         render(GeneralTab(model: model), "settings-general", to: out, dark: dark, size: CGSize(width: 560, height: 420))
+        render(QuotasTab(model: model), "settings-quotas", to: out, dark: dark, size: CGSize(width: 560, height: 420))
         render(HistoryView(model: model), "history", to: out, dark: dark)
     }
 

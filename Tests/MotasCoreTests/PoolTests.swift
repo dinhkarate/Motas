@@ -205,6 +205,21 @@ struct PoolTests {
         #expect(abs(lanes[0].mean - 0.31) < 1e-9)
     }
 
+    @Test func aBasisWindowSetsTheReserveAndOthersKeepTheLowest() throws {
+        let both = account("a", .windows([limit(0.9, "5h"), limit(0.3, "weekly")]))
+        let fiveHourOnly = account("b", .windows([limit(0.5, "5h")]))
+        let snapshot = Snapshot(fetchedAt: t0, proxies: [proxy([both, fiveHourOnly])])
+        let lowest = try #require(Pool.summarize(snapshot, now: t0, staleLimit: 1800).first)
+        #expect(abs((lowest.reserve ?? 0) - 0.4) < 1e-9 && lowest.basis == nil)
+        let weekly = try #require(Pool.summarize(snapshot, now: t0, staleLimit: 1800, bases: ["codex|free|": "weekly"]).first)
+        #expect(abs((weekly.reserve ?? 0) - 0.4) < 1e-9 && weekly.basis == "weekly")    // b has no weekly window: its lowest
+        let fiveHour = try #require(Pool.summarize(snapshot, now: t0, staleLimit: 1800, bases: ["codex|free|": "5h"]).first)
+        #expect(abs((fiveHour.reserve ?? 0) - 0.7) < 1e-9)
+        #expect(fiveHour.lanes.map(\.id) == ["5h", "weekly"])    // lanes still show every window
+        let members = Pool.members(snapshot, key: fiveHour.key, now: t0, staleLimit: 1800, basis: "5h")
+        #expect(members.map(\.value) == [0.9, 0.5])
+    }
+
     @Test func accountsOfAnUnhealthyProxyStillCount() throws {
         let codex = try #require(pools(proxy([account("a", .windows([limit(0.25)]), observed: t0 - 600)],
                                              health: .failed(.unreachable("Timed out")))).first)

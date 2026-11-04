@@ -60,6 +60,8 @@ public struct PoolSummary: Codable, Sendable, Hashable, Identifiable {
     public var nextResetAt: Date?
     /// Reset credits of the exhausted members.
     public var resetCredits = 0
+    /// The window period the reserve was read from; nil = the lowest window.
+    public var basis: String?
 }
 
 /// One account of a pool, for surfaces that need per-account detail: the
@@ -86,7 +88,9 @@ public enum Pool {
     /// tier there is one pool when any member has a `.limit` window without a
     /// group; otherwise one per group of `.limit` or `.model` windows (image
     /// and other never pool). A provider that never had windows has no pool.
-    public static func summarize(_ snapshot: Snapshot, now: Date, staleLimit: TimeInterval) -> [PoolSummary] {
+    /// `bases` maps a pool id to the window period its reserve is read from.
+    public static func summarize(_ snapshot: Snapshot, now: Date, staleLimit: TimeInterval,
+                                 bases: [String: String] = [:]) -> [PoolSummary] {
         var byTier: [PoolKey: [Candidate]] = [:]
         for proxy in snapshot.proxies {
             for account in proxy.accounts where account.state == .active {
@@ -109,7 +113,7 @@ public enum Pool {
         return keys.map { key in
             let candidates = byTier[PoolKey(provider: key.provider, tier: key.tier, group: "")] ?? []
             let tiers = Set(keys.filter { $0.provider == key.provider }.map(\.tier)).count
-            return summary(key, candidates, tiers: tiers, now: now, staleLimit: staleLimit)
+            return summary(key, candidates, tiers: tiers, now: now, staleLimit: staleLimit, basis: bases[key.id])
         }
     }
 
@@ -134,12 +138,17 @@ public enum Pool {
         var rejected = false
         var limits: [QuotaWindow] = []
         var models: [QuotaWindow] = []
+        /// The chosen window period; nil = every limit window counts.
+        var basis: String?
 
         /// min(min(L), max(M)): a family is out only when every text model is.
+        /// With a basis, L is the basis windows when the member has any.
         /// nil (unknown) when the figures are older than `staleLimit` or all reset.
         func value(now: Date, staleLimit: TimeInterval) -> Double? {
             guard !rejected, let observed = account.quotaObservedAt, now.timeIntervalSince(observed) <= staleLimit else { return nil }
-            return [limits.map(\.remainingFraction).min(), models.map(\.remainingFraction).max()].compactMap { $0 }.min()
+            let chosen = basis.map { b in limits.filter { $0.period == b } } ?? []
+            let counted = chosen.isEmpty ? limits : chosen
+            return [counted.map(\.remainingFraction).min(), models.map(\.remainingFraction).max()].compactMap { $0 }.min()
         }
 
         /// When an exhausted member is back: every out limit window must reset,
@@ -156,8 +165,8 @@ public enum Pool {
     /// nil when the account is not a member: it never had windows for the
     /// group. Rejected accounts have no windows and belong to every pool of
     /// their provider and tier.
-    private static func member(_ candidate: Candidate, in key: PoolKey, now: Date) -> Member? {
-        var member = Member(account: candidate.account, fetchedAt: candidate.fetchedAt)
+    private static func member(_ candidate: Candidate, in key: PoolKey, now: Date, basis: String? = nil) -> Member? {
+        var member = Member(account: candidate.account, fetchedAt: candidate.fetchedAt, basis: basis)
         if case .rejected = candidate.account.quota {
             member.rejected = true
             return member
@@ -194,16 +203,18 @@ public enum Pool {
         return kept
     }
 
-    private static func summary(_ key: PoolKey, _ candidates: [Candidate], tiers: Int, now: Date, staleLimit: TimeInterval) -> PoolSummary {
+    private static func summary(_ key: PoolKey, _ candidates: [Candidate], tiers: Int, now: Date, staleLimit: TimeInterval,
+                                basis: String?) -> PoolSummary {
         let (title, displayName) = names(key, hint: candidates.lazy.compactMap(\.account.displayHint).first, tiers: tiers)
         var pool = PoolSummary(key: key, title: title, displayName: displayName)
+        pool.basis = basis
         var total = 0.0
         var lanes: [String: (sum: Double, count: Int, duration: TimeInterval?)] = [:]
         func lane(_ id: String, _ value: Double, duration: TimeInterval?) {
             let lane = lanes[id] ?? (0, 0, nil)
             lanes[id] = (lane.sum + value, lane.count + 1, lane.duration ?? duration)
         }
-        for member in dedupe(candidates.compactMap { member($0, in: key, now: now) }) {
+        for member in dedupe(candidates.compactMap { member($0, in: key, now: now, basis: basis) }) {
             pool.members += 1
             if member.rejected {
                 pool.rejected += 1
@@ -253,7 +264,7 @@ public enum Pool {
     /// The pool's members, deduped and in label order. A pool card can draw one
     /// meter per member only when there are at most three of them.
     public static func members(_ snapshot: Snapshot, key: PoolKey, now: Date,
-                               staleLimit: TimeInterval) -> [PoolMember] {
+                               staleLimit: TimeInterval, basis: String? = nil) -> [PoolMember] {
         var candidates: [Candidate] = []
         for proxy in snapshot.proxies {
             for account in proxy.accounts where account.state == .active && account.provider == key.provider
@@ -261,7 +272,7 @@ public enum Pool {
                 candidates.append(Candidate(account: account, fetchedAt: proxy.fetchedAt))
             }
         }
-        return dedupe(candidates.compactMap { member($0, in: key, now: now) })
+        return dedupe(candidates.compactMap { member($0, in: key, now: now, basis: basis) })
             .map { member in
                 PoolMember(id: member.account.id, label: member.account.label, plan: member.account.plan,
                            value: member.value(now: now, staleLimit: staleLimit))

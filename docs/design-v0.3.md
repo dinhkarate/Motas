@@ -1692,3 +1692,19 @@ own the remaining work; do not reach ahead.
   `desktop-widget-status-dark.png` and the three `desktop-status-*-dark.png`
   cards. The status fixtures use the same details as the data rule:
   "2 connections", "Proxy unhealthy" and "No active account".
+- 0.3.1 UX pass (user feedback 2026-11-04: Settings unreachable from the
+  menu bar, no per-quota settings, unlabelled icons):
+  - Per-pool options in `settings.json` (`pools`, keyed by `PoolKey.id`):
+    own warning level, the window the percentage is read from (`basis`;
+    members without that window keep their lowest), notifications, hidden.
+    Hidden pools leave the cards, menu bar, desktop and alerts. A muted pool
+    is still evaluated, so unmuting sends nothing stale.
+  - Each pool card has a ⋯ menu with those options (also its context menu);
+    Settings has a Quotas tab with the same.
+  - Settings and History open with `.moveToActiveSpace` and
+    `.fullScreenAuxiliary`: an accessory app's window otherwise opens on the
+    desktop Space, out of sight while a full-screen app is in front.
+  - The panel's scroll area is sized to its content (a ScrollView in a
+    menu-bar window collapses to ~150 pt), the panel is 360 pt wide, cards
+    are top-aligned, the footer buttons carry text, and the card detail
+    counts accounts that need re-login.

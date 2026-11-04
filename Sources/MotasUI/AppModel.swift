@@ -78,6 +78,8 @@ public final class AppModel: ObservableObject {
     @Published public private(set) var settings: MotasSettings
     @Published public private(set) var snapshot: Snapshot
     @Published public private(set) var pools: [PoolSummary] = []
+    /// Pools the user hid: kept out of the cards, menu bar, desktop and alerts.
+    @Published public private(set) var hiddenPools: [PoolSummary] = []
     @Published public private(set) var history: [PoolSample] = []
     /// Titles of the pools in the last saved snapshot, so history can name a
     /// pool that no longer exists.
@@ -163,7 +165,7 @@ public final class AppModel: ObservableObject {
         self.snapshot = snapshot
         savedPoolTitles = (shared?.pools ?? []).reduce(into: [:]) { $0[$1.id] = $1.title }
         monitor = Monitor(http: environment.http, secrets: environment.secrets, seed: snapshot, now: environment.now)
-        pools = Pool.summarize(snapshot, now: environment.now(), staleLimit: settings.staleLimit)
+        (pools, hiddenPools) = Self.pools(snapshot, settings: settings, now: environment.now())
         history = historyStore.load()
         secretPresence = environment.secrets.presence()
         self.settingsError = settingsError
@@ -331,10 +333,24 @@ public final class AppModel: ObservableObject {
     /// turning them on sends nothing stale.
     private func recompute() -> [QuotaAlert] {
         let now = environment.now()
-        pools = Pool.summarize(snapshot, now: now, staleLimit: settings.staleLimit)
+        (pools, hiddenPools) = Self.pools(snapshot, settings: settings, now: now)
         let due = alerts.evaluate(snapshot, pools: pools, threshold: settings.lowReserveThreshold,
-                                  refreshInterval: settings.clampedRefreshInterval, online: isOnline, now: now)
+                                  refreshInterval: settings.clampedRefreshInterval, online: isOnline, now: now,
+                                  thresholds: settings.pools.compactMapValues(\.lowReserveThreshold),
+                                  muted: Set(settings.pools.filter { !$0.value.notify }.keys))
         return settings.notificationsEnabled ? due : []
+    }
+
+    /// Every pool with its chosen basis, split into shown and hidden.
+    static func pools(_ snapshot: Snapshot, settings: MotasSettings, now: Date) -> (shown: [PoolSummary], hidden: [PoolSummary]) {
+        let all = Pool.summarize(snapshot, now: now, staleLimit: settings.staleLimit,
+                                 bases: settings.pools.compactMapValues(\.basis))
+        return (all.filter { !settings.options(for: $0.id).hidden }, all.filter { settings.options(for: $0.id).hidden })
+    }
+
+    /// Changes one pool's options in settings.json.
+    public func setOptions(for poolID: String, _ change: @escaping (inout PoolOptions) -> Void) {
+        try? update { $0.setOptions(for: poolID, change) }
     }
 
     /// The shared snapshot, history, and a widget reload when what it shows

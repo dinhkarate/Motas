@@ -39,6 +39,23 @@ struct SettingsTests {
         #expect(try store.load().lowReserveThreshold == 0.2)
     }
 
+    @Test func poolOptionsRoundTripAndDefaultsAreDropped() throws {
+        let store = SettingsStore(url: tempURL("settings.json"))
+        var settings = MotasSettings()
+        settings.setOptions(for: "codex|free|") { $0.lowReserveThreshold = 0.3; $0.basis = "weekly"; $0.notify = false }
+        settings.setOptions(for: "antigravity||gemini") { $0.hidden = true }
+        try store.save(settings)
+        let loaded = try store.load()
+        #expect(loaded.pools == settings.pools)
+        #expect(loaded.threshold(for: "codex|free|") == 0.3 && loaded.threshold(for: "antigravity||gemini") == 0.2)
+        #expect(loaded.options(for: "missing") == PoolOptions())
+        var reset = loaded
+        reset.setOptions(for: "antigravity||gemini") { $0.hidden = false }
+        #expect(reset.pools.keys.sorted() == ["codex|free|"])
+        try Data(#"{"pools":{"codex|free|":{"hidden":true}}}"#.utf8).write(to: store.url)
+        #expect(try store.load().options(for: "codex|free|") == PoolOptions(hidden: true))
+    }
+
     @Test func corruptFileThrowsAndIsKept() throws {
         let store = SettingsStore(url: tempURL("settings.json"))
         try FileManager.default.createDirectory(at: store.url.deletingLastPathComponent(), withIntermediateDirectories: true)
@@ -184,6 +201,23 @@ struct AlertTests {
         #expect(evaluate(&engine, snapshot(at: 1500), [codexPool(0.375)]).isEmpty)     // re-armed, with no "recovered" alert
         #expect(evaluate(&engine, snapshot(at: 1800), [codexPool(0.125)]).isEmpty)
         #expect(evaluate(&engine, snapshot(at: 2100), [codexPool(0.125)]).map(\.kind) == [.poolLow])
+    }
+
+    @Test func aPoolsOwnThresholdAndMuteApply() {
+        var engine = AlertEngine()
+        func run(_ at: TimeInterval, _ reserve: Double, thresholds: [String: Double] = [:], muted: Set<String> = []) -> [QuotaAlert] {
+            let snapshot = snapshot(at: at)
+            return engine.evaluate(snapshot, pools: [codexPool(reserve)], threshold: 0.2, refreshInterval: 300, online: true,
+                                   now: snapshot.fetchedAt, thresholds: thresholds, muted: muted)
+        }
+        _ = run(0, 0.5, thresholds: ["codex|free|": 0.4])
+        _ = run(300, 0.375, thresholds: ["codex|free|": 0.4])
+        #expect(run(600, 0.375, thresholds: ["codex|free|": 0.4]).map(\.kind) == [.poolLow])    // under its own 40 %
+        engine = AlertEngine()
+        _ = run(0, 0.5, muted: ["codex|free|"])
+        _ = run(300, 0.125, muted: ["codex|free|"])
+        #expect(run(600, 0.125, muted: ["codex|free|"]).isEmpty)
+        #expect(run(900, 0.125).isEmpty)    // unmuting sends nothing stale: it was already alerted, silently
     }
 
     @Test func aPoolMeasuredOnceIsNeverLow() {

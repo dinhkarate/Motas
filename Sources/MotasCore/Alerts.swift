@@ -64,12 +64,17 @@ public struct AlertEngine: Sendable {
         self.timeZone = timeZone
     }
 
+    /// `thresholds` overrides `threshold` per pool id. Pools in `muted` are
+    /// evaluated but never alerted, so unmuting sends nothing stale.
     public mutating func evaluate(_ snapshot: Snapshot, pools: [PoolSummary], threshold: Double, refreshInterval: TimeInterval,
-                                  online: Bool, now: Date) -> [QuotaAlert] {
+                                  online: Bool, now: Date, thresholds: [String: Double] = [:],
+                                  muted: Set<String> = []) -> [QuotaAlert] {
         let at = snapshot.fetchedAt
         var alerts: [QuotaAlert] = []
         var evaluated: Set<String> = []
         for pool in pools {
+            let threshold = thresholds[pool.id] ?? threshold, count = alerts.count
+            defer { if muted.contains(pool.id) { alerts.removeSubrange(count...) } }
             let low = QuotaAlert.identifier(.poolLow, key: pool.id), exhausted = QuotaAlert.identifier(.poolExhausted, key: pool.id)
             evaluated.formUnion([low, exhausted])
             if let reserve = pool.reserve, reserve >= threshold + 0.05 { _ = rearm(low) }

@@ -150,6 +150,28 @@ struct AppModelTests {
 
     func usageReads(_ http: StubHTTP) -> [String?] { http.requests.filter { $0.path.hasPrefix("/api/usage/") }.map { $0.url?.query } }
 
+    @Test func hiddenPoolsAreSplitOutAndBasesApply() {
+        func account(_ id: String, _ provider: Provider, _ windows: [QuotaWindow]) -> AccountSnapshot {
+            AccountSnapshot(id: id, provider: provider, label: id, plan: provider == .codex ? "free" : nil, state: .active,
+                            quota: .windows(windows), quotaObservedAt: t0)
+        }
+        func window(_ fraction: Double, _ period: String) -> QuotaWindow {
+            QuotaWindow(id: period, label: period, remainingFraction: fraction, period: period, role: .limit)
+        }
+        let snapshot = Snapshot(fetchedAt: t0, proxies: [
+            ProxySnapshot(id: UUID(), name: "p", kind: .nineRouter, fetchedAt: t0, health: .ok, accounts: [
+                account("c", .codex, [window(0.9, "5h"), window(0.2, "weekly")]),
+                account("g", Provider(rawValue: "claude"), [window(0.5, "5h")]),
+            ]),
+        ])
+        var settings = MotasSettings()
+        settings.setOptions(for: "codex|free|") { $0.basis = "5h" }
+        settings.setOptions(for: "claude||") { $0.hidden = true }
+        let (shown, hidden) = AppModel.pools(snapshot, settings: settings, now: t0)
+        #expect(shown.map(\.id) == ["codex|free|"] && shown.first?.reserve == 0.9)
+        #expect(hidden.map(\.id) == ["claude||"])
+    }
+
     @Test func unconfiguredShowsEmptyStateAndMakesNoRequests() async {
         let http = testbeds()
         let m = h.model(http: http)
