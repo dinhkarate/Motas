@@ -1,91 +1,212 @@
 #!/usr/bin/env python3
 """Capture raw responses from a live CLIProxyAPI + 9Router testbed.
 
-Env: MOTAS_CPA_URL, MOTAS_9R_URL, and either MOTAS_TESTBED_SSH (host whose
-~/motas-testbed/.env holds CPA_MGMT_KEY, CPA_CLIENT_KEY, NINE_PASSWORD) or
-those three variables directly. Secrets are never printed. Raw output goes to
-MOTAS_RAW_DIR (default ./raw) and may contain emails and ids — run
-sanitize-fixtures.py before committing anything.
+Env:
+  MOTAS_CPA_URL, MOTAS_9R_URL
+  CPA_MGMT_KEY, CPA_CLIENT_KEY
+  NINE_ROUTER_CLI_TOKEN   preferred 9Router credential (x-9r-cli-token)
+  NINE_PASSWORD           dashboard password, used when no CLI token
+  MOTAS_TESTBED_SSH       optional host whose ~/motas-testbed/.env holds the
+                          secrets; explicit environment variables win
+
+Raw output goes to MOTAS_RAW_DIR (default ./raw) and may contain emails and
+ids — run sanitize-fixtures.py before committing anything. Secrets are never
+printed. Each call's status, size and duration is recorded in timings.jsonl.
+
+The 9Router capture writes 9r_prod_providers.json and
+9r_prod_usage_by_connection.json (connection id -> {status, body}), the two
+files the offline pool tests serve through the real adapter.
 """
-import base64, json, os, subprocess, sys, urllib.request, urllib.error, http.cookiejar
+import base64
+import http.cookiejar
+import json
+import os
+import subprocess
+import sys
+import time
+import urllib.error
+import urllib.request
 
 OUT = os.environ.get("MOTAS_RAW_DIR", "raw")
 os.makedirs(OUT, exist_ok=True)
-if os.environ.get("MOTAS_TESTBED_SSH"):
-    env = dict(l.split("=", 1) for l in subprocess.check_output(
-        ["ssh", os.environ["MOTAS_TESTBED_SSH"], "cat ~/motas-testbed/.env"], text=True).split())
-else:
-    env = {k: os.environ[k] for k in ("CPA_MGMT_KEY", "CPA_CLIENT_KEY", "NINE_PASSWORD")}
-CPA = os.environ["MOTAS_CPA_URL"].rstrip("/")
-NR = os.environ["MOTAS_9R_URL"].rstrip("/")
+TIMINGS = []
 
 
-def call(method, url, headers=None, body=None, opener=None):
+def load_env():
+    """The environment, plus the testbed's .env when MOTAS_TESTBED_SSH is set."""
+    values = {}
+    host = os.environ.get("MOTAS_TESTBED_SSH")
+    if host:
+        raw = subprocess.check_output(["ssh", host, "cat ~/motas-testbed/.env"], text=True)
+        for line in raw.splitlines():
+            line = line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            key, value = line.split("=", 1)
+            values[key.strip()] = value.strip().strip('"').strip("'")
+    return {**values, **os.environ}
+
+
+def require(env, name):
+    value = env.get(name)
+    if not value:
+        sys.exit(f"Missing {name} (set it in the environment or ~/motas-testbed/.env).")
+    return value
+
+
+def call(name, method, url, headers=None, body=None, opener=None):
+    """One request; records status, bytes and milliseconds, never the secret."""
     data = json.dumps(body).encode() if body is not None else None
     req = urllib.request.Request(url, method=method, data=data, headers=headers or {})
     if data is not None:
         req.add_header("Content-Type", "application/json")
+    start = time.perf_counter()
     try:
-        with (opener or urllib.request.build_opener()).open(req, timeout=40) as r:
-            return r.status, r.read()
-    except urllib.error.HTTPError as e:
-        return e.code, e.read()
+        with (opener or urllib.request.build_opener()).open(req, timeout=40) as response:
+            status, raw = response.status, response.read()
+    except urllib.error.HTTPError as error:
+        status, raw = error.code, error.read()
+    except (urllib.error.URLError, TimeoutError, OSError) as error:
+        status, raw = 0, json.dumps({"error": str(error)}).encode()
+    ms = round((time.perf_counter() - start) * 1000)
+    TIMINGS.append({"call": name, "status": status, "bytes": len(raw), "ms": ms})
+    return status, raw
 
 
 def save(name, status, raw):
-    with open(os.path.join(OUT, name + ".json"), "wb") as f:
-        f.write(raw)
+    with open(os.path.join(OUT, name + ".json"), "wb") as file:
+        file.write(raw)
     try:
-        j = json.loads(raw)
-        shape = sorted(j.keys()) if isinstance(j, dict) else f"list[{len(j)}]"
+        doc = json.loads(raw)
+        shape = sorted(doc.keys()) if isinstance(doc, dict) else f"list[{len(doc)}]"
     except Exception:
-        shape = f"non-json {len(raw)}B"
-    print(f"{name}: {status} {shape}")
-    return json.loads(raw) if raw[:1] in (b"{", b"[") else None
+        doc, shape = None, f"non-json {len(raw)}B"
+    ms = TIMINGS[-1]["ms"] if TIMINGS else 0
+    print(f"{name}: {status} {shape} ({ms} ms)")
+    return doc
 
 
-def jwt_claims(tok):
+def save_json(name, value):
+    with open(os.path.join(OUT, name + ".json"), "w") as file:
+        json.dump(value, file, indent=2, sort_keys=True)
+        file.write("\n")
+
+
+def jwt_claims(token):
     try:
-        p = tok.split(".")[1]
-        return json.loads(base64.urlsafe_b64decode(p + "=" * (-len(p) % 4)))
+        payload = token.split(".")[1]
+        return json.loads(base64.urlsafe_b64decode(payload + "=" * (-len(payload) % 4)))
     except Exception:
         return {}
 
 
-# ---------- CPA ----------
-mg = {"Authorization": "Bearer " + env["CPA_MGMT_KEY"]}
-save("cpa_v1_models", *call("GET", CPA + "/v1/models", {"Authorization": "Bearer " + env["CPA_CLIENT_KEY"]}))
-files = save("cpa_auth_files", *call("GET", CPA + "/v0/management/auth-files", mg))["files"]
-for f in files:
-    idx, prov = f.get("auth_index"), f.get("provider") or f.get("type")
-    save(f"cpa_quota_fetch_{prov}", *call("POST", CPA + "/v0/management/quota/fetch", mg, {"auth_index": idx}))
-    if prov == "codex":
-        acct = f.get("chatgpt_account_id") or f.get("account_id") or \
-            jwt_claims(f.get("id_token", "")).get("https://api.openai.com/auth", {}).get("chatgpt_account_id")
-        hdr = {"Authorization": "Bearer $TOKEN$", "User-Agent": "codex-cli"}
-        if acct:
-            hdr["Chatgpt-Account-Id"] = acct
-        print("  codex account id resolved:", bool(acct))
-        save("cpa_apicall_codex_usage", *call("POST", CPA + "/v0/management/api-call", mg, {
-            "auth_index": idx, "method": "GET", "url": "https://chatgpt.com/backend-api/wham/usage", "header": hdr}))
-    if prov == "antigravity":
-        body = json.dumps({"project": f.get("project_id", "")})
-        hdr = {"Authorization": "Bearer $TOKEN$", "Content-Type": "application/json",
-               "User-Agent": "antigravity/cli/1.0.13 (aidev_client; os_type=darwin; arch=arm64)"}
-        for i, u in enumerate(["https://daily-cloudcode-pa.googleapis.com/v1internal:retrieveUserQuotaSummary",
-                               "https://cloudcode-pa.googleapis.com/v1internal:retrieveUserQuotaSummary",
-                               "https://cloudcode-pa.googleapis.com/v1internal:fetchAvailableModels"]):
-            save(f"cpa_apicall_antigravity_{i}", *call("POST", CPA + "/v0/management/api-call", mg, {
-                "auth_index": idx, "method": "POST", "url": u, "header": hdr, "data": body}))
+def capture_cpa(env):
+    cpa = require(env, "MOTAS_CPA_URL").rstrip("/")
+    management = {"Authorization": "Bearer " + require(env, "CPA_MGMT_KEY")}
+    client = {"Authorization": "Bearer " + require(env, "CPA_CLIENT_KEY")}
 
-# ---------- 9Router ----------
-jar = http.cookiejar.CookieJar()
-op = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(jar))
-save("9r_login", *call("POST", NR + "/api/auth/login", body={"password": env["NINE_PASSWORD"]}, opener=op))
-print("  cookies:", [c.name for c in jar])
-save("9r_unauth_providers", *call("GET", NR + "/api/providers"))
-conns = save("9r_providers", *call("GET", NR + "/api/providers", opener=op)).get("connections", [])
-for c in conns:
-    save(f"9r_usage_{c.get('provider')}", *call("GET", NR + f"/api/usage/{c['id']}", opener=op))
-save("9r_health", *call("GET", NR + "/api/health"))
-save("9r_version", *call("GET", NR + "/api/version"))
+    save("cpa_v1_models", *call("cpa_v1_models", "GET", cpa + "/v1/models", client))
+    listing = save("cpa_auth_files", *call("cpa_auth_files", "GET", cpa + "/v0/management/auth-files", management))
+    files = (listing or {}).get("files", [])
+    for entry in files:
+        auth_index = entry.get("auth_index")
+        provider = entry.get("provider") or entry.get("type") or "unknown"
+        save(f"cpa_quota_fetch_{provider}",
+             *call(f"cpa_quota_fetch_{provider}", "POST", cpa + "/v0/management/quota/fetch",
+                   management, {"auth_index": auth_index}))
+        if provider == "codex":
+            account_id = entry.get("chatgpt_account_id") or entry.get("account_id") or \
+                jwt_claims(entry.get("id_token", "")).get("https://api.openai.com/auth", {}).get("chatgpt_account_id")
+            header = {"Authorization": "Bearer $TOKEN$", "User-Agent": "codex-cli"}
+            if account_id:
+                header["Chatgpt-Account-Id"] = account_id
+            print("  codex account id resolved:", bool(account_id))
+            save("cpa_apicall_codex_usage",
+                 *call("cpa_apicall_codex_usage", "POST", cpa + "/v0/management/api-call", management, {
+                     "auth_index": auth_index, "method": "GET",
+                     "url": "https://chatgpt.com/backend-api/wham/usage", "header": header}))
+        elif provider == "antigravity":
+            project = entry.get("project_id", "")
+            body = json.dumps({"project": project})
+            header = {"Authorization": "Bearer $TOKEN$", "Content-Type": "application/json",
+                      "User-Agent": "antigravity/cli/1.0.13 (aidev_client; os_type=darwin; arch=arm64)"}
+            for index, url in enumerate([
+                "https://daily-cloudcode-pa.googleapis.com/v1internal:retrieveUserQuotaSummary",
+                "https://cloudcode-pa.googleapis.com/v1internal:retrieveUserQuotaSummary",
+                "https://cloudcode-pa.googleapis.com/v1internal:fetchAvailableModels",
+            ]):
+                save(f"cpa_apicall_antigravity_{index}",
+                     *call(f"cpa_apicall_antigravity_{index}", "POST", cpa + "/v0/management/api-call",
+                           management, {"auth_index": auth_index, "method": "POST", "url": url,
+                                        "header": header, "data": body}))
+        elif provider == "claude":
+            save("cpa_apicall_claude_usage",
+                 *call("cpa_apicall_claude_usage", "POST", cpa + "/v0/management/api-call", management, {
+                     "auth_index": auth_index, "method": "GET",
+                     "url": "https://api.anthropic.com/api/oauth/usage",
+                     "header": {"Authorization": "Bearer $TOKEN$",
+                                "anthropic-beta": "oauth-2025-04-20",
+                                "User-Agent": "claude-cli/2.1.280 (external, cli)"}}))
+
+
+def capture_nine_router(env):
+    nine = require(env, "MOTAS_9R_URL").rstrip("/")
+    token = env.get("NINE_ROUTER_CLI_TOKEN")
+    password = env.get("NINE_PASSWORD")
+    opener = None
+    headers = {}
+
+    if token:
+        headers = {"x-9r-cli-token": token}
+        print("9Router: CLI token")
+    elif password:
+        jar = http.cookiejar.CookieJar()
+        opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(jar))
+        save("9r_login", *call("9r_login", "POST", nine + "/api/auth/login", body={"password": password}, opener=opener))
+        print("9Router: dashboard password")
+    else:
+        sys.exit("Set NINE_ROUTER_CLI_TOKEN or NINE_PASSWORD (or MOTAS_TESTBED_SSH).")
+
+    save("9r_unauth_providers", *call("9r_unauth_providers", "GET", nine + "/api/providers"))
+    listing = save("9r_prod_providers", *call("9r_prod_providers", "GET", nine + "/api/providers", headers, opener=opener))
+    connections = (listing or {}).get("connections", [])
+
+    usage = {}
+    for connection in connections:
+        connection_id = connection.get("id")
+        if not connection_id:
+            continue
+        provider = connection.get("provider") or "unknown"
+        status, raw = call(f"9r_usage_{provider}", "GET", nine + f"/api/usage/{connection_id}", headers, opener=opener)
+        try:
+            body = json.loads(raw)
+        except Exception:
+            body = raw.decode(errors="replace")
+        usage[connection_id] = {"status": status, "body": body}
+        print(f"  usage {provider} {connection_id}: {status} {len(raw)}B")
+
+    save_json("9r_prod_usage_by_connection", usage)
+    save("9r_health", *call("9r_health", "GET", nine + "/api/health"))
+    save("9r_version", *call("9r_version", "GET", nine + "/api/version"))
+
+
+def write_timings():
+    with open(os.path.join(OUT, "timings.jsonl"), "w") as file:
+        for timing in TIMINGS:
+            file.write(json.dumps(timing, sort_keys=True) + "\n")
+    if TIMINGS:
+        slowest = sorted(TIMINGS, key=lambda item: item["ms"], reverse=True)[:5]
+        print("slowest:", ", ".join(f"{item['call']} {item['ms']} ms" for item in slowest))
+
+
+def main():
+    env = load_env()
+    capture_cpa(env)
+    capture_nine_router(env)
+
+
+if __name__ == "__main__":
+    try:
+        main()
+    finally:
+        write_timings()

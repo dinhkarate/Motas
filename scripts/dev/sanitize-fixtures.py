@@ -51,9 +51,17 @@ def scrub_str(key, s):
     return s
 
 
+def scrub_key(key):
+    if UUID.fullmatch(key):
+        return fake("uuid", key)
+    if EMAIL.fullmatch(key):
+        return fake("email", key)
+    return key
+
+
 def scrub(v, key=""):
     if isinstance(v, dict):
-        return {k: scrub(x, k) for k, x in v.items()}
+        return {scrub_key(k): scrub(x, k) for k, x in v.items()}
     if isinstance(v, list):
         return [scrub(x, key) for x in v]
     if isinstance(v, str):
