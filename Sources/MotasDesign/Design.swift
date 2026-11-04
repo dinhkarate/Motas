@@ -1,44 +1,94 @@
+import AppKit
 import MotasCore
 import SwiftUI
 
-/// Shared look for the panel, menu bar and widget. Values follow what the
-/// established quota apps converged on (CodexBar, Quotio, Claude-Usage-Tracker):
-/// thin capsule bars, provider brand colors, red/orange only when low,
-/// monospaced digits everywhere.
+/// Shared look for the panel, menu bar and widgets. One colour rule —
+/// `Design.level` — for every surface; provider accents only mark a family.
 public enum Design {
-    public static let locale = Locale(identifier: "en_US")
-    public static let criticalFraction = 0.10
+    /// `en_GB` gives the spec's "17 Nov", "14:05" and "2 min ago".
+    public static let locale = Locale(identifier: "en_GB")
 
-    public static func color(for provider: Provider) -> Color {
-        switch provider.rawValue {
-        case "codex": Color(hex: 0x49A3B0)
-        case "claude": Color(hex: 0xCC7C5E)
-        case "antigravity": Color(hex: 0x60BA7E)
-        case "gemini-cli", "gemini": Color(hex: 0xAB87EA)
-        default:
-            // Stable hue per unknown provider id.
-            Color(hue: Double(provider.rawValue.unicodeScalars.reduce(0) { ($0 &* 31 &+ Int($1.value)) & 0xFFFF } % 360) / 360,
-                  saturation: 0.45, brightness: 0.75)
+    /// At or below this, a pool is critical whatever the threshold.
+    public static let criticalFraction = 0.005
+
+    public enum Level: Sendable, Equatable {
+        case good
+        case low
+        case critical
+
+        /// Dark values are the design table's pastels; light values are the
+        /// darker equivalents that keep the same meaning readable on white.
+        public var color: Color {
+            switch self {
+            case .good: Design.adaptive(light: 0x12864a, dark: 0x55d98a)
+            case .low: Design.adaptive(light: 0xa86400, dark: 0xf0b35b)
+            case .critical: Design.adaptive(light: 0xc02b46, dark: 0xfb7185)
+            }
         }
     }
 
-    /// Provider color while healthy; orange under the user's threshold, red when critical.
-    public static func fill(_ fraction: Double?, provider: Provider, threshold: Double) -> Color {
-        guard let fraction else { return .secondary }
-        if fraction <= criticalFraction { return .red }
-        if fraction < threshold { return .orange }
-        return color(for: provider)
+    /// Critical: at or below 0.5 %, or below half the threshold. Low: below
+    /// the threshold. Good: otherwise.
+    public static func level(_ fraction: Double, threshold: Double) -> Level {
+        if fraction <= criticalFraction || fraction < threshold / 2 { return .critical }
+        if fraction < threshold { return .low }
+        return .good
     }
 
-    /// Text color for a percentage: neutral when healthy, warning colors when low.
-    public static func text(_ fraction: Double?, threshold: Double) -> Color {
+    /// The meter/number colour; nil (unknown) stays neutral.
+    public static func levelColor(_ fraction: Double?, threshold: Double) -> Color {
         guard let fraction else { return .secondary }
-        if fraction <= criticalFraction { return .red }
-        if fraction < threshold { return .orange }
-        return .primary
+        return level(fraction, threshold: threshold).color
     }
 
-    public static func percent(_ fraction: Double) -> String { "\(Int((fraction * 100).rounded()))%" }
+    /// One decimal, with ".0" dropped: 51.3%, 51%.
+    public static func percent(_ fraction: Double) -> String {
+        let value = (fraction * 1000).rounded() / 10
+        return value == value.rounded() ? "\(Int(value))%" : String(format: "%.1f%%", value)
+    }
+
+    /// The menu bar's whole percent.
+    public static func percentWhole(_ fraction: Double) -> String { "\(Int((fraction * 100).rounded()))%" }
+
+    /// The family mark and accent. A mark is one glyph; an unknown provider
+    /// gets its first letter.
+    public static func mark(for provider: Provider) -> String {
+        switch provider.rawValue {
+        case "codex": "O"
+        case "antigravity", "gemini-cli", "gemini": "✦"
+        case "claude": "A"
+        case "xai": "𝕏"
+        default: String(provider.displayName.prefix(1)).uppercased()
+        }
+    }
+
+    public static func accent(for provider: Provider) -> Color {
+        switch provider.rawValue {
+        case "codex": adaptive(light: 0x3f4652, dark: 0xd9dde5)
+        case "antigravity", "gemini-cli", "gemini": adaptive(light: 0x2f6fed, dark: 0x7ba7ff)
+        case "claude": adaptive(light: 0xb5502f, dark: 0xe58a68)
+        case "xai": adaptive(light: 0x374151, dark: 0xf2f4f8)
+        default: adaptive(light: 0x4b5563, dark: 0xc7ccd6)
+        }
+    }
+
+    /// The family a pool wears. Antigravity's Claude & GPT lane belongs to the
+    /// Claude family, not to the Gemini star.
+    public static func family(for poolID: String) -> Provider? {
+        let parts = poolID.split(separator: "|", omittingEmptySubsequences: false)
+        guard parts.count == 3 else { return nil }
+        let provider = Provider(rawValue: String(parts[0]))
+        return provider == .antigravity && parts[2] == "claude-gpt" ? .claude : provider
+    }
+
+    /// A colour that follows the effective appearance, so one token works on
+    /// the dark desktop widget and on the light panel alike.
+    static func adaptive(light: UInt32, dark: UInt32) -> Color {
+        Color(nsColor: NSColor(name: nil) { appearance in
+            let isDark = appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+            return NSColor(hex: isDark ? dark : light)
+        })
+    }
 
     public static func relative(_ date: Date, now: Date = .now) -> String {
         if abs(date.timeIntervalSince(now)) < 45 { return date > now ? "in a moment" : "just now" }
@@ -48,23 +98,33 @@ public enum Design {
         return formatter.localizedString(for: date, relativeTo: now)
     }
 
-    public static func count(_ n: Int, _ noun: String) -> String { "\(n) \(noun)\(n == 1 ? "" : "s")" }
+    /// "17 Nov", in the user's time zone.
+    public static func day(_ date: Date, timeZone: TimeZone = .autoupdatingCurrent) -> String {
+        var style = Date.FormatStyle.dateTime.day().month(.abbreviated).locale(locale)
+        style.timeZone = timeZone
+        return date.formatted(style)
+    }
 
-    public static func monogram(_ provider: Provider) -> String {
-        switch provider.rawValue {
-        case "codex": "Cx"
-        case "claude": "Cl"
-        case "antigravity": "Ag"
-        case "gemini-cli": "Gm"
-        default: String(provider.displayName.prefix(2))
-        }
+    /// "14:05", in the user's time zone.
+    public static func time(_ date: Date) -> String {
+        date.formatted(.dateTime.hour().minute().locale(locale))
+    }
+
+    public static func count(_ n: Int, _ noun: String) -> String { "\(n) \(noun)\(n == 1 ? "" : "s")" }
+}
+
+extension NSColor {
+    convenience init(hex: UInt32) {
+        self.init(srgbRed: CGFloat((hex >> 16) & 0xFF) / 255,
+                  green: CGFloat((hex >> 8) & 0xFF) / 255,
+                  blue: CGFloat(hex & 0xFF) / 255,
+                  alpha: 1)
     }
 }
 
-extension Color {
-    init(hex: UInt32) {
-        self.init(red: Double((hex >> 16) & 0xFF) / 255, green: Double((hex >> 8) & 0xFF) / 255, blue: Double(hex & 0xFF) / 255)
-    }
+extension PoolSummary {
+    /// The family mark and accent for this pool's title and cards.
+    public var familyProvider: Provider { Design.family(for: id) ?? key.provider }
 }
 
 /// Capsule progress bar showing what is LEFT. A non-zero value never renders
@@ -94,7 +154,7 @@ public struct CapsuleBar: View {
     }
 }
 
-/// Two-letter provider badge in the provider's color.
+/// The family mark in a small tinted tile: a glyph, never a two-letter badge.
 public struct ProviderBadge: View {
     let provider: Provider
     let size: CGFloat
@@ -105,10 +165,13 @@ public struct ProviderBadge: View {
     }
 
     public var body: some View {
-        Text(Design.monogram(provider))
-            .font(.system(size: size * 0.45, weight: .bold, design: .rounded))
-            .foregroundStyle(.white)
+        let accent = Design.accent(for: provider)
+        Text(Design.mark(for: provider))
+            .font(.system(size: size * 0.52, weight: .bold, design: .serif))
+            .foregroundStyle(accent)
             .frame(width: size, height: size)
-            .background(RoundedRectangle(cornerRadius: size * 0.3, style: .continuous).fill(Design.color(for: provider)))
+            .background(RoundedRectangle(cornerRadius: size * 0.3, style: .continuous).fill(accent.opacity(0.1)))
+            .overlay(RoundedRectangle(cornerRadius: size * 0.3, style: .continuous)
+                .strokeBorder(accent.opacity(0.34), lineWidth: 1))
     }
 }

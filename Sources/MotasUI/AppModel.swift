@@ -79,6 +79,9 @@ public final class AppModel: ObservableObject {
     @Published public private(set) var snapshot: Snapshot
     @Published public private(set) var pools: [PoolSummary] = []
     @Published public private(set) var history: [PoolSample] = []
+    /// Titles of the pools in the last saved snapshot, so history can name a
+    /// pool that no longer exists.
+    @Published public private(set) var savedPoolTitles: [String: String] = [:]
     @Published public private(set) var isRefreshing = false
     /// False while the network is down: the header says "Offline" and no
     /// proxy-down alert is sent.
@@ -149,7 +152,8 @@ public final class AppModel: ObservableObject {
             settingsError = Self.unreadable(error)
         }
         // Last real snapshot, shown with its age until the first refresh lands.
-        var snapshot = SharedSnapshot.load(from: environment.paths.snapshot).map { $0.snapshot } ?? .empty
+        let shared = SharedSnapshot.load(from: environment.paths.snapshot)
+        var snapshot = shared.map { $0.snapshot } ?? .empty
         if !settings.proxies.isEmpty {
             snapshot.proxies = snapshot.proxies.filter { p in settings.proxies.contains { $0.id == p.id && $0.isEnabled } }
         } else {
@@ -157,6 +161,7 @@ public final class AppModel: ObservableObject {
         }
         self.settings = settings
         self.snapshot = snapshot
+        savedPoolTitles = (shared?.pools ?? []).reduce(into: [:]) { $0[$1.id] = $1.title }
         monitor = Monitor(http: environment.http, secrets: environment.secrets, seed: snapshot, now: environment.now)
         pools = Pool.summarize(snapshot, now: environment.now(), staleLimit: settings.staleLimit)
         history = historyStore.load()
@@ -176,6 +181,8 @@ public final class AppModel: ObservableObject {
 
     public var isConfigured: Bool { settings.proxies.contains(where: \.isEnabled) }
     public var headline: PoolSummary? { Pool.headline(pools, pinned: menuBarPool) }
+    /// The environment's clock, so a render or a test sees one "now".
+    public var now: Date { environment.now() }
 
     public var headerStatus: HeaderStatus? {
         if !isOnline { return .offline }
@@ -302,6 +309,7 @@ public final class AppModel: ObservableObject {
                                     headlineID: headline?.id, savedAt: now)
         do {
             try shared.save(to: environment.paths.snapshot)
+            savedPoolTitles = shared.pools.reduce(into: [:]) { $0[$1.id] = $1.title }
             history = try historyStore.record(pools, at: snapshot.fetchedAt, interval: settings.clampedRefreshInterval)
             saveError = nil
         } catch {

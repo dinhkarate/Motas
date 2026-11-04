@@ -105,7 +105,7 @@ public enum Pool {
 
     /// Codex only, from the resolved plan: Free and Go share one limit regime,
     /// other plans stay apart. Other providers' plans are not comparable across proxies.
-    static func tier(_ provider: Provider, plan: String?) -> String {
+    public static func tier(_ provider: Provider, plan: String?) -> String {
         guard provider == .codex, let plan = plan?.lowercased() else { return "" }
         return plan == "go" ? "free" : plan
     }

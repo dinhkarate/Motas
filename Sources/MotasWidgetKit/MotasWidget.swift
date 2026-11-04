@@ -7,13 +7,15 @@ import WidgetKit
 /// `MotasWidgetBundle`; everything else lives here so it builds with SwiftPM.
 public struct PoolEntry: TimelineEntry {
     public let date: Date
+    public let headline: PoolSummary?
     public let pools: [PoolSummary]
     public let fetchedAt: Date?
     public let threshold: Double
     public let problem: String?
 
-    public init(date: Date, pools: [PoolSummary], fetchedAt: Date?, threshold: Double, problem: String?) {
+    public init(date: Date, headline: PoolSummary?, pools: [PoolSummary], fetchedAt: Date?, threshold: Double, problem: String?) {
         self.date = date
+        self.headline = headline
         self.pools = pools
         self.fetchedAt = fetchedAt
         self.threshold = threshold
@@ -25,7 +27,7 @@ public struct PoolProvider: TimelineProvider {
     public init() {}
 
     public func placeholder(in context: Context) -> PoolEntry {
-        PoolEntry(date: .now, pools: [], fetchedAt: nil, threshold: 0.2, problem: nil)
+        PoolEntry(date: .now, headline: nil, pools: [], fetchedAt: nil, threshold: 0.2, problem: nil)
     }
 
     public func getSnapshot(in context: Context, completion: @escaping (PoolEntry) -> Void) {
@@ -36,14 +38,16 @@ public struct PoolProvider: TimelineProvider {
         completion(Timeline(entries: [Self.entry()], policy: .after(.now.addingTimeInterval(15 * 60))))
     }
 
-    /// Reads the app's last real snapshot and the pools it computed. Never
-    /// fabricates: no file → empty.
+    /// Reads the app's saved snapshot and the pools it computed, including the
+    /// headline. Never recomputes them; no file → empty.
     static func entry() -> PoolEntry {
         guard let shared = SharedSnapshot.load() else {
-            return PoolEntry(date: .now, pools: [], fetchedAt: nil, threshold: 0.2, problem: "Open Motas to add a proxy")
+            return PoolEntry(date: .now, headline: nil, pools: [], fetchedAt: nil, threshold: 0.2,
+                             problem: "Open Motas to add a proxy")
         }
+        let headline = shared.pools.first { $0.id == shared.headlineID }
         let down = shared.unhealthyProxies
-        return PoolEntry(date: .now, pools: shared.pools, fetchedAt: shared.snapshot.fetchedAt,
+        return PoolEntry(date: .now, headline: headline, pools: shared.pools, fetchedAt: shared.snapshot.fetchedAt,
                          threshold: shared.threshold, problem: down > 0 ? "\(down) proxy unavailable" : nil)
     }
 }
@@ -61,24 +65,24 @@ public struct PoolWidgetView: View {
     }
 
     private var measured: [PoolSummary] {
-        entry.pools.filter { $0.reserve != nil }.sorted { $0.reserve! < $1.reserve! }
+        entry.pools.filter { $0.reserve != nil && $0.id != entry.headline?.id }
     }
 
     public var body: some View {
         Group {
-            if let headline = measured.first {
+            if let headline = entry.headline, headline.reserve != nil {
                 if family == .systemSmall {
                     VStack(alignment: .leading, spacing: 0) {
                         HeadlineBlock(pool: headline, threshold: entry.threshold, numberSize: 34)
                         Spacer(minLength: 6)
-                        let others = measured.dropFirst().prefix(2)
+                        let others = measured.prefix(2)
                         if !others.isEmpty {
                             HStack(spacing: 10) {
                                 ForEach(Array(others)) { pool in
                                     HStack(spacing: 4) {
-                                        ProviderBadge(pool.key.provider, size: 12)
-                                        Text(Design.percent(pool.reserve!)).font(.system(size: 11, weight: .semibold)).monospacedDigit()
-                                            .foregroundStyle(Design.text(pool.reserve, threshold: entry.threshold))
+                                        ProviderBadge(pool.familyProvider, size: 12)
+                                        Text(Design.percent(pool.reserve ?? 0)).font(.system(size: 11, weight: .semibold)).monospacedDigit()
+                                            .foregroundStyle(Design.levelColor(pool.reserve, threshold: entry.threshold))
                                     }
                                 }
                             }
@@ -95,10 +99,10 @@ public struct PoolWidgetView: View {
                         }
                         .frame(maxWidth: .infinity, alignment: .leading)
                         VStack(alignment: .leading, spacing: 9) {
-                            ForEach(Array(measured.dropFirst().prefix(3))) { PoolRow(pool: $0, threshold: entry.threshold) }
+                            ForEach(Array(measured.prefix(3))) { PoolRow(pool: $0, threshold: entry.threshold) }
                             ForEach(entry.pools.filter { $0.reserve == nil }.prefix(max(0, 4 - measured.count))) { pool in
                                 HStack(spacing: 6) {
-                                    ProviderBadge(pool.key.provider, size: 14)
+                                    ProviderBadge(pool.familyProvider, size: 14)
                                     Text(pool.title).font(.system(size: 11, weight: .medium))
                                     Spacer()
                                     Text("—").font(.system(size: 11)).foregroundStyle(.secondary)
@@ -149,15 +153,15 @@ struct HeadlineBlock: View {
         let reserve = pool.reserve ?? 0
         VStack(alignment: .leading, spacing: 4) {
             HStack(spacing: 6) {
-                ProviderBadge(pool.key.provider, size: 18)
+                ProviderBadge(pool.familyProvider, size: 18)
                 Text(pool.title).font(.system(size: 13, weight: .semibold)).lineLimit(1)
             }
             Text(Design.percent(reserve))
                 .font(.system(size: numberSize, weight: .semibold, design: .rounded)).monospacedDigit()
-                .foregroundStyle(Design.text(reserve, threshold: threshold))
+                .foregroundStyle(Design.levelColor(reserve, threshold: threshold))
                 .padding(.top, 2)
             Text(detail).font(.system(size: 10)).foregroundStyle(.secondary).lineLimit(1)
-            CapsuleBar(reserve, color: Design.fill(reserve, provider: pool.key.provider, threshold: threshold), height: 9)
+            CapsuleBar(reserve, color: Design.levelColor(reserve, threshold: threshold), height: 9)
                 .padding(.top, 2)
         }
     }
@@ -177,13 +181,13 @@ struct PoolRow: View {
         let reserve = pool.reserve ?? 0
         VStack(alignment: .leading, spacing: 4) {
             HStack(spacing: 6) {
-                ProviderBadge(pool.key.provider, size: 14)
+                ProviderBadge(pool.familyProvider, size: 14)
                 Text(pool.title).font(.system(size: 11, weight: .medium)).lineLimit(1)
                 Spacer()
                 Text(Design.percent(reserve)).font(.system(size: 11, weight: .semibold)).monospacedDigit()
-                    .foregroundStyle(Design.text(reserve, threshold: threshold))
+                    .foregroundStyle(Design.levelColor(reserve, threshold: threshold))
             }
-            CapsuleBar(reserve, color: Design.fill(reserve, provider: pool.key.provider, threshold: threshold), height: 7)
+            CapsuleBar(reserve, color: Design.levelColor(reserve, threshold: threshold), height: 7)
         }
     }
 }

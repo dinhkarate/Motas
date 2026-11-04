@@ -15,16 +15,33 @@ public struct MenuBarLabel: View {
 
     public var body: some View {
         let gauge = Pool.gauge(model.pools, pinned: model.menuBarPool)
-        let problem = model.snapshot.proxies.contains { !$0.health.isOK }
         HStack(spacing: 4) {
-            Image(nsImage: MenuBarGauge.image(top: gauge.first?.reserve, bottom: gauge.dropFirst().first?.reserve,
-                                              dimmed: problem || gauge.first?.reserve == nil))
-            if let pool = gauge.first, let reserve = pool.reserve {
-                Text("\(problem ? "⚠︎ " : "")\(pool.title) \(Design.percent(reserve))").monospacedDigit()
-            } else if problem {
-                Text("⚠︎")
+            if model.needsKeychainAccess {
+                Image(systemName: "key.fill").font(.system(size: 12, weight: .semibold))
+            } else if model.isConfigured, !gauge.isEmpty {
+                Image(nsImage: MenuBarGauge.image(top: gauge.first?.reserve, bottom: gauge.dropFirst().first?.reserve,
+                                                  dimmed: dimmed(gauge.first)))
+            }
+            if !model.isConfigured || gauge.isEmpty {
+                Text("Motas")
+            } else if let pool = gauge.first {
+                Text("\(hasActionableProblem ? "⚠︎ " : "")\(pool.title) \(pool.reserve.map(Design.percentWhole) ?? "—")")
+                    .monospacedDigit()
             }
         }
+    }
+
+    /// The headline's measured accounts are all stale, or it has no reserve.
+    private func dimmed(_ pool: PoolSummary?) -> Bool {
+        guard let pool, let reserve = pool.reserve else { return true }
+        return reserve >= 0 && pool.measured > 0 && pool.stale >= pool.measured
+    }
+
+    /// A proxy problem worth a glyph, or rejected accounts in a metered pool.
+    private var hasActionableProblem: Bool {
+        guard model.isOnline else { return false }
+        return model.snapshot.proxies.contains(where: \.isUnhealthy)
+            || model.pools.contains { $0.rejected > 0 && $0.members > 0 }
     }
 }
 
@@ -56,29 +73,25 @@ enum MenuBarGauge {
 public struct PanelView: View {
     @ObservedObject var model: AppModel
     @Environment(\.openWindow) private var openWindow
-    @State private var filter: Provider?
+    @State private var filter: PoolFilter?
 
     public init(model: AppModel) { self.model = model }
 
     private var threshold: Double { model.settings.lowReserveThreshold }
+    private var now: Date { model.now }
 
     public var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             header
-            ForEach([model.settingsError, model.secretError, model.saveError].compactMap { $0 }, id: \.self) { error in
-                Banner(text: error, symbol: "exclamationmark.octagon.fill", tint: .red)
-            }
-            if model.needsKeychainAccess {
-                Banner(text: "Motas needs Keychain access to read proxy credentials.", symbol: "key.fill", tint: .orange,
-                       action: ("Allow…", { Task { await model.approveKeychain() } }))
-            }
+            banners
             if model.isConfigured {
-                if providers.count > 1 { filterPills }
+                if showFirstRun { FirstRunCard(model: model) }
                 ScrollView {
-                    VStack(alignment: .leading, spacing: 8) {
-                        ForEach(visiblePools) { PoolCard(pool: $0, threshold: threshold) }
+                    VStack(alignment: .leading, spacing: 10) {
+                        poolGrid
                         ForEach(model.snapshot.proxies) { proxy in
-                            ProxySection(proxy: proxy, filter: filter, threshold: threshold)
+                            ProxySection(proxy: proxy, model: model, filter: filter, threshold: threshold,
+                                         now: now, staleAfter: staleAfter)
                         }
                         if model.snapshot.proxies.isEmpty {
                             Text(model.isRefreshing ? "Reading proxies…" : "No data yet.")
@@ -86,7 +99,7 @@ public struct PanelView: View {
                         }
                     }
                 }
-                .frame(maxHeight: 520)
+                .frame(maxHeight: 560)
             } else {
                 emptyState
             }
@@ -99,19 +112,12 @@ public struct PanelView: View {
         .onAppear { model.panelOpened() }
     }
 
-    private var providers: [Provider] {
-        model.pools.reduce(into: []) { if !$0.contains($1.key.provider) { $0.append($1.key.provider) } }
-    }
-    private var visiblePools: [PoolSummary] { model.pools.filter { filter == nil || $0.key.provider == filter } }
-
     private var header: some View {
         HStack(alignment: .firstTextBaseline) {
             Text("Motas").font(.system(size: 15, weight: .semibold))
             Spacer()
-            switch model.headerStatus {
-            case .offline: Text("Offline").font(.caption).foregroundStyle(.secondary)
-            case .updated(let date): Text("Updated \(Design.relative(date))").font(.caption).foregroundStyle(.secondary)
-            case nil: EmptyView()
+            if let status = headerStatus {
+                Text(status.text).font(.caption).foregroundStyle(status.color).lineLimit(1)
             }
             if model.isRefreshing {
                 ProgressView().controlSize(.mini).frame(width: 20)
@@ -123,13 +129,53 @@ public struct PanelView: View {
         }
     }
 
-    private var filterPills: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 6) {
-                Pill(title: "All", selected: filter == nil) { filter = nil }
-                ForEach(providers, id: \.self) { provider in
-                    Pill(title: provider.displayName, color: Design.color(for: provider), selected: filter == provider) {
-                        filter = filter == provider ? nil : provider
+    /// "Updated 2 min ago", "1 of 2 proxies stale · data from 14 min ago", or "Offline".
+    private var headerStatus: (text: String, color: Color)? {
+        if !model.isOnline { return ("Offline", .secondary) }
+        guard model.isConfigured else { return nil }
+        let enabled = model.settings.proxies.filter(\.isEnabled)
+        let stale = enabled.filter { config in
+            guard let proxy = model.snapshot.proxies.first(where: { $0.id == config.id }) else { return true }
+            return now.timeIntervalSince(proxy.fetchedAt) > staleAfter
+        }.count
+        if stale > 0 {
+            let age = model.snapshot.fetchedAt > .distantPast ? Design.relative(model.snapshot.fetchedAt, now: now) : "never"
+            return ("\(stale) of \(enabled.count) proxies stale · data from \(age)", .orange)
+        }
+        guard model.snapshot.fetchedAt > .distantPast else { return nil }
+        return ("Updated \(Design.relative(model.snapshot.fetchedAt, now: now))", .secondary)
+    }
+
+    private var staleAfter: TimeInterval { max(120, model.settings.clampedRefreshInterval * 1.5) }
+
+    @ViewBuilder private var banners: some View {
+        ForEach([model.settingsError, model.secretError, model.saveError].compactMap { $0 }, id: \.self) { error in
+            Banner(text: error, symbol: "exclamationmark.octagon.fill", tint: .red)
+        }
+        if model.needsKeychainAccess {
+            Banner(text: "Motas needs Keychain access to read proxy credentials.", symbol: "key.fill", tint: .orange,
+                   action: ("Allow…", { Task { await model.approveKeychain() } }))
+        }
+        ForEach(model.snapshot.proxies.filter(\.isUnhealthy)) { proxy in
+            ProxyProblemBanner(proxy: proxy, now: now,
+                               dashboardURL: model.settings.proxies.first { $0.id == proxy.id }?.dashboardURL)
+        }
+    }
+
+    private var showFirstRun: Bool {
+        !model.onboardingDone && model.snapshot.proxies.contains { $0.health.isOK && !$0.accounts.isEmpty }
+    }
+
+    private var poolGrid: some View {
+        LazyVGrid(columns: [GridItem(.flexible(), spacing: 8), GridItem(.flexible(), spacing: 8)], spacing: 8) {
+            ForEach(model.pools) { pool in
+                PoolCard(pool: pool, threshold: threshold, now: now,
+                         pinned: model.menuBarPool == pool.id, selected: filter == pool.filterKey) {
+                    filter = filter == pool.filterKey ? nil : pool.filterKey
+                }
+                .contextMenu {
+                    Button(model.menuBarPool == pool.id ? "Unpin from menu bar" : "Pin to menu bar") {
+                        model.menuBarPool = model.menuBarPool == pool.id ? nil : pool.id
                     }
                 }
             }
@@ -151,8 +197,12 @@ public struct PanelView: View {
 
     private var footer: some View {
         HStack(spacing: 4) {
-            FooterButton("Settings…", symbol: "gearshape") { open("settings") }.keyboardShortcut(",")
             FooterButton("History", symbol: "chart.xyaxis.line") { open("history") }
+            FooterButton("Settings…", symbol: "gearshape") { open("settings") }.keyboardShortcut(",")
+            FooterButton("Desktop", symbol: model.desktopWidgetEnabled ? "rectangle.on.rectangle.fill" : "rectangle.on.rectangle") {
+                model.desktopWidgetEnabled.toggle()
+            }
+            .help(model.desktopWidgetEnabled ? "Hide Model Pulse" : "Show Model Pulse on the desktop")
             Spacer()
             FooterButton("Quit", symbol: "power") { NSApplication.shared.terminate(nil) }.keyboardShortcut("q")
         }
@@ -164,47 +214,127 @@ public struct PanelView: View {
     }
 }
 
+// MARK: First run
+
+/// Shown once, after the first successful refresh: two toggles and Done.
+struct FirstRunCard: View {
+    @ObservedObject var model: AppModel
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 7) {
+            Text("Motas is reading your proxies").font(.system(size: 12, weight: .semibold))
+            Toggle("Show Model Pulse on desktop", isOn: $model.desktopWidgetEnabled)
+                .toggleStyle(.checkbox).font(.caption)
+            Toggle("Launch at login", isOn: Binding(
+                get: { model.launchesAtLogin },
+                set: { on in do { try model.setLaunchAtLogin(on) } catch {} }
+            ))
+            .toggleStyle(.checkbox).font(.caption)
+            HStack {
+                Spacer()
+                Button("Done") { model.onboardingDone = true }.controlSize(.small)
+            }
+        }
+        .padding(10)
+        .background(RoundedRectangle(cornerRadius: 9, style: .continuous).fill(Color.accentColor.opacity(0.08)))
+        .overlay(RoundedRectangle(cornerRadius: 9, style: .continuous).strokeBorder(Color.accentColor.opacity(0.2), lineWidth: 1))
+    }
+}
+
 // MARK: Pool card
 
-/// One pool across every proxy: big reserve, bar, usable count, next reset.
+/// The filter a pool card sets: provider and tier, as §9.2 defines it.
+struct PoolFilter: Equatable {
+    var provider: Provider
+    var tier: String
+
+    init(_ key: PoolKey) {
+        provider = key.provider
+        tier = key.tier
+    }
+}
+
+extension PoolSummary {
+    var filterKey: PoolFilter { PoolFilter(key) }
+}
+
+/// One compact pool card: title, big reserve, meter, detail and lanes.
 struct PoolCard: View {
     let pool: PoolSummary
     let threshold: Double
+    let now: Date
+    let pinned: Bool
+    let selected: Bool
+    let action: () -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack(spacing: 8) {
-                ProviderBadge(pool.key.provider, size: 18)
-                Text(pool.title).font(.system(size: 13, weight: .semibold))
-                Spacer()
-                Text(detail).font(.caption).foregroundStyle(.secondary).monospacedDigit().lineLimit(1)
-            }
-            if let reserve = pool.reserve {
-                HStack(spacing: 10) {
+        Button(action: action) {
+            VStack(alignment: .leading, spacing: 4) {
+                HStack(spacing: 4) {
+                    Text(pool.title.uppercased())
+                        .font(.system(size: 9, weight: .bold)).tracking(0.6)
+                        .foregroundStyle(.secondary).lineLimit(1)
+                    if pinned { Image(systemName: "pin.fill").font(.system(size: 7)).foregroundStyle(.tertiary) }
+                    Spacer(minLength: 0)
+                    if pool.stale > 0 { Marker("stale", color: .orange) }
+                    if pool.unknown > 0 { Marker("?", color: .secondary) }
+                }
+                if let reserve = pool.reserve {
                     Text(Design.percent(reserve))
                         .font(.system(size: 22, weight: .semibold, design: .rounded)).monospacedDigit()
-                        .foregroundStyle(Design.text(reserve, threshold: threshold))
-                        .frame(minWidth: 58, alignment: .leading)
-                    CapsuleBar(reserve, color: Design.fill(reserve, provider: pool.key.provider, threshold: threshold), height: 6)
+                        .foregroundStyle(Design.levelColor(reserve, threshold: threshold))
+                    CapsuleBar(reserve, color: Design.levelColor(reserve, threshold: threshold), height: 4)
+                } else {
+                    Text("—").font(.system(size: 22, weight: .semibold, design: .rounded)).foregroundStyle(.secondary)
+                    CapsuleBar(nil, color: .secondary, height: 4)
                 }
-            } else {
-                Text("No quota figures reported").font(.callout).foregroundStyle(.secondary)
+                Text(detail).font(.system(size: 9)).foregroundStyle(.secondary)
+                    .lineLimit(2).fixedSize(horizontal: false, vertical: true)
+                if pool.lanes.count > 1 {
+                    Text(lanes).font(.system(size: 9)).foregroundStyle(.tertiary)
+                        .lineLimit(2).fixedSize(horizontal: false, vertical: true)
+                }
             }
+            .padding(8)
+            .frame(maxWidth: .infinity, minHeight: 64, alignment: .leading)
+            .background(RoundedRectangle(cornerRadius: 9, style: .continuous).fill(Color.primary.opacity(selected ? 0.10 : 0.05)))
+            .overlay(RoundedRectangle(cornerRadius: 9, style: .continuous)
+                .strokeBorder(selected ? Color.accentColor.opacity(0.6) : .clear, lineWidth: 1))
+            .contentShape(Rectangle())
         }
-        .padding(.horizontal, 12).padding(.vertical, 10)
-        .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(Color.primary.opacity(0.05)))
+        .buttonStyle(.plain)
+        .accessibilityLabel("\(pool.title), \(pool.reserve.map(Design.percent) ?? "unknown")")
     }
 
     private var detail: String {
-        var parts = [usable]
-        if let reset = pool.nextResetAt { parts.append("reset \(Design.relative(reset))") }
-        return parts.filter { !$0.isEmpty }.joined(separator: " · ")
+        var parts = ["\(pool.usable)/\(pool.members) usable"]
+        if let back = pool.nextRecoveryAt { parts.append("back \(Design.day(back))") }
+        if pool.resetCredits > 0 {
+            parts.append("\(pool.resetCredits) reset credit\(pool.resetCredits == 1 ? "" : "s")")
+        }
+        return parts.joined(separator: " · ")
     }
 
-    private var usable: String {
-        var parts = ["\(pool.usable)/\(pool.members) usable"]
-        if pool.unknown > 0 { parts.append("\(pool.unknown) unknown") }
-        return parts.joined(separator: " · ")
+    private var lanes: String {
+        pool.lanes.map { "\($0.label) \(Design.percent($0.mean))" }.joined(separator: " · ")
+    }
+}
+
+private struct Marker: View {
+    let text: String
+    let color: Color
+
+    init(_ text: String, color: Color) {
+        self.text = text
+        self.color = color
+    }
+
+    var body: some View {
+        Text(text)
+            .font(.system(size: 7, weight: .bold))
+            .foregroundStyle(color)
+            .padding(.horizontal, 3).padding(.vertical, 1)
+            .background(Capsule().fill(color.opacity(0.12)))
     }
 }
 
@@ -212,67 +342,289 @@ struct PoolCard: View {
 
 struct ProxySection: View {
     let proxy: ProxySnapshot
-    let filter: Provider?
+    @ObservedObject var model: AppModel
+    let filter: PoolFilter?
     let threshold: Double
-    @Environment(\.motasExpandGroups) private var expandAll
+    let now: Date
+    let staleAfter: TimeInterval
+
     @State private var collapsed = false
+    @State private var showNotMetered = false
 
     var body: some View {
-        let groups = Dictionary(grouping: proxy.accounts) { $0.provider }
-            .filter { filter == nil || $0.key == filter }
-            .sorted { $0.key < $1.key }
-        if filter == nil || !groups.isEmpty || !proxy.health.isOK {
+        if filter == nil || !groups.isEmpty {
             VStack(alignment: .leading, spacing: 6) {
-                Button { withAnimation(.easeOut(duration: 0.15)) { collapsed.toggle() } } label: {
-                    HStack(spacing: 6) {
-                        Circle().fill(proxy.health.isOK ? Color.green : Color.red).frame(width: 7, height: 7)
-                        Text(proxy.name).font(.system(size: 12, weight: .semibold))
-                        Text(proxy.kind.displayName).font(.caption).foregroundStyle(.secondary)
-                        Spacer()
-                        if proxy.health.isOK {
-                            Text(Design.count(proxy.accounts.count, "account")).font(.caption).foregroundStyle(.secondary)
-                        }
-                        Image(systemName: "chevron.right").font(.system(size: 9, weight: .semibold)).foregroundStyle(.tertiary)
-                            .rotationEffect(.degrees(collapsed ? 0 : 90))
-                    }
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .padding(.top, 6)
-
+                header
                 if !proxy.health.isOK {
-                    Text(proxy.health.summary).font(.caption).foregroundStyle(.red)
+                    Text(proxy.health.summary)
+                        .font(.caption).foregroundStyle(proxy.health == .needsKeychainAccess ? .orange : .red)
                         .fixedSize(horizontal: false, vertical: true)
                 }
+                if isStale, proxy.health.isOK {
+                    Text("Data from \(Design.relative(proxy.fetchedAt, now: now))")
+                        .font(.system(size: 9)).foregroundStyle(.orange)
+                }
                 if !collapsed {
-                    ForEach(groups, id: \.key) { provider, accounts in
-                        VStack(spacing: 2) {
-                            ForEach(accounts.sorted { tightestFirst($0, $1) }) { AccountRow(account: $0, threshold: threshold, expanded: expandAll) }
-                        }
+                    ForEach(groups) { group in
+                        ProviderBlock(group: group, proxy: proxy, threshold: threshold, now: now, dashboardURL: dashboardURL)
                     }
+                    if !disabledSummary.isEmpty {
+                        Text("Disabled: \(disabledSummary)")
+                            .font(.system(size: 10)).foregroundStyle(.tertiary)
+                    }
+                    if !unmeteredGroups.isEmpty { notMetered }
                 }
             }
         }
     }
 
-    /// Disabled last, unknown after measured, lowest remaining first.
-    private func tightestFirst(_ a: AccountSnapshot, _ b: AccountSnapshot) -> Bool {
-        if (a.state == .disabled) != (b.state == .disabled) { return b.state == .disabled }
-        return (a.quota.effectiveRemaining ?? 2) < (b.quota.effectiveRemaining ?? 2)
+    private var header: some View {
+        HStack(spacing: 6) {
+            Button { withAnimation(.easeOut(duration: 0.15)) { collapsed.toggle() } } label: {
+                HStack(spacing: 6) {
+                    Circle().fill(healthColor).frame(width: 7, height: 7)
+                    Text(proxy.name).font(.system(size: 12, weight: .semibold))
+                    Text(proxy.kind.displayName).font(.caption).foregroundStyle(.secondary)
+                    Image(systemName: "chevron.right").font(.system(size: 9, weight: .semibold)).foregroundStyle(.tertiary)
+                        .rotationEffect(.degrees(collapsed ? 0 : 90))
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            Spacer()
+            if let dashboardURL {
+                Button("Open dashboard") { NSWorkspace.shared.open(dashboardURL) }
+                    .buttonStyle(.link).font(.system(size: 10))
+            }
+        }
+        .padding(.top, 6)
+    }
+
+    private var healthColor: Color {
+        switch proxy.health {
+        case .ok: .green
+        case .needsKeychainAccess: .orange
+        case .failed: .red
+        }
+    }
+
+    private var dashboardURL: URL? {
+        model.settings.proxies.first { $0.id == proxy.id }?.dashboardURL
+    }
+
+    private var isStale: Bool { now.timeIntervalSince(proxy.fetchedAt) > staleAfter }
+
+    private var groups: [ProviderAccounts] {
+        var byProvider: [Provider: [AccountSnapshot]] = [:]
+        for account in proxy.accounts where account.state == .active {
+            if case .unavailable = account.quota { continue }
+            byProvider[account.provider, default: []].append(account)
+        }
+        return byProvider.compactMap { provider, accounts in
+            let matching = accounts.filter { account in
+                guard let filter else { return true }
+                return account.provider == filter.provider
+                    && Pool.tier(account.provider, plan: account.plan) == filter.tier
+            }
+            guard !matching.isEmpty else { return nil }
+            return ProviderAccounts(provider: provider, accounts: matching, now: now,
+                                    staleLimit: model.settings.staleLimit)
+        }
+        .sorted { Pool.precedes($0.provider, $1.provider) }
+    }
+
+    private var unmeteredGroups: [Pool.UnmeteredGroup] { Pool.unmetered(proxy) }
+
+    private var unmeteredAccounts: [AccountSnapshot] {
+        proxy.accounts.filter {
+            guard $0.state == .active else { return false }
+            if case .unavailable = $0.quota { return true }
+            return false
+        }
+    }
+
+    private var unmeteredSummary: String {
+        unmeteredGroups.map { group in
+            var text = group.name + (group.count > 1 ? " ×\(group.count)" : "")
+            if group.quotaExceeded { text += " (quota exceeded)" }
+            return text
+        }
+        .joined(separator: " · ")
+    }
+
+    private var disabledSummary: String {
+        Dictionary(grouping: proxy.accounts.filter { $0.state == .disabled }, by: \.provider)
+            .map { provider, accounts in
+                let name = provider.displayName(hint: accounts.first?.displayHint)
+                return accounts.count > 1 ? "\(name) ×\(accounts.count)" : name
+            }
+            .sorted()
+            .joined(separator: ", ")
+    }
+
+    private var notMetered: some View {
+        DisclosureRow(title: "Not metered: \(unmeteredSummary)", color: .secondary, expanded: $showNotMetered) {
+            VStack(alignment: .leading, spacing: 2) {
+                ForEach(unmeteredAccounts) { account in
+                    Text("\(account.label) — \(message(account))")
+                        .font(.system(size: 9)).foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            .padding(.leading, 12)
+        }
+    }
+
+    private func message(_ account: AccountSnapshot) -> String {
+        if case .unavailable(let message) = account.quota { return message }
+        return ""
     }
 }
 
-/// Compact row: badge, account, plan, mini bars for the two tightest windows,
+/// One provider's accounts inside a proxy, split by what the panel shows.
+struct ProviderAccounts: Identifiable {
+    var provider: Provider
+    var name: String
+    var usable: [AccountSnapshot]
+    var exhausted: [AccountSnapshot]
+    var rejected: [AccountSnapshot]
+    var unknown: [AccountSnapshot]
+
+    var id: Provider { provider }
+
+    init(provider: Provider, accounts: [AccountSnapshot], now: Date, staleLimit: TimeInterval) {
+        self.provider = provider
+        name = provider.displayName(hint: accounts.first?.displayHint)
+        var usable: [AccountSnapshot] = [], exhausted: [AccountSnapshot] = [], rejected: [AccountSnapshot] = []
+        var unknown: [AccountSnapshot] = []
+        for account in accounts {
+            switch account.quota {
+            case .unavailable:
+                continue
+            case .rejected:
+                rejected.append(account)
+            case .failed:
+                unknown.append(account)
+            case .windows:
+                let stale = account.quotaObservedAt.map { now.timeIntervalSince($0) > staleLimit } ?? true
+                if stale {
+                    unknown.append(account)
+                } else if (account.quota.effectiveRemaining ?? 1) <= Pool.exhaustedThreshold {
+                    exhausted.append(account)
+                } else {
+                    usable.append(account)
+                }
+            }
+        }
+        self.usable = usable.sorted { ($0.quota.effectiveRemaining ?? 2) < ($1.quota.effectiveRemaining ?? 2) }
+        self.exhausted = exhausted.sorted { $0.label < $1.label }
+        self.rejected = rejected.sorted { $0.label < $1.label }
+        self.unknown = unknown.sorted { $0.label < $1.label }
+    }
+}
+
+struct ProviderBlock: View {
+    let group: ProviderAccounts
+    let proxy: ProxySnapshot
+    let threshold: Double
+    let now: Date
+    let dashboardURL: URL?
+
+    @Environment(\.motasExpandGroups) private var expandAll
+    @State private var showExhausted = false
+    @State private var showRejected = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            HStack {
+                Text(group.name).font(.system(size: 10, weight: .semibold)).foregroundStyle(.secondary)
+                Spacer()
+                Text("\(group.usable.count + group.exhausted.count + group.rejected.count + group.unknown.count)")
+                    .font(.system(size: 9)).foregroundStyle(.tertiary)
+            }
+            .padding(.leading, 4)
+            ForEach(group.usable) { account in row(account) }
+            if !group.exhausted.isEmpty {
+                DisclosureRow(title: exhaustedTitle, color: .red, expanded: $showExhausted) {
+                    VStack(spacing: 2) { ForEach(group.exhausted) { row($0) } }
+                }
+            }
+            if !group.rejected.isEmpty {
+                DisclosureRow(title: "Needs re-login ×\(group.rejected.count)", color: .orange, expanded: $showRejected) {
+                    VStack(spacing: 2) { ForEach(group.rejected) { row($0) } }
+                }
+            }
+            ForEach(group.unknown) { account in row(account) }
+        }
+    }
+
+    private func row(_ account: AccountSnapshot) -> some View {
+        AccountRow(account: account, proxyKind: proxy.kind, dashboardURL: dashboardURL,
+                   threshold: threshold, now: now, expanded: expandAll)
+    }
+
+    private var exhaustedTitle: String {
+        var parts = ["Exhausted ×\(group.exhausted.count)"]
+        if let back = nextBack { parts.append("next back \(Design.day(back))") }
+        let credits = group.exhausted.compactMap(\.extras.resetCredits).reduce(0, +)
+        if credits > 0 { parts.append("\(credits) reset credit\(credits == 1 ? "" : "s")") }
+        return parts.joined(separator: " · ")
+    }
+
+    /// The earliest instant an exhausted account is back: its last out window,
+    /// but not before a cooldown ends.
+    private var nextBack: Date? {
+        group.exhausted.compactMap { account -> Date? in
+            let windows = account.quota.windows.filter { $0.remainingFraction <= Pool.exhaustedThreshold }
+            let windowBack = windows.compactMap(\.resetsAt).max()
+            let cooldown = account.cooldownUntil.flatMap { $0 > now ? $0 : nil }
+            return [windowBack, cooldown].compactMap { $0 }.max()
+        }.min()
+    }
+}
+
+struct DisclosureRow<Content: View>: View {
+    let title: String
+    let color: Color
+    @Binding var expanded: Bool
+    @ViewBuilder var content: () -> Content
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Button { withAnimation(.easeOut(duration: 0.15)) { expanded.toggle() } } label: {
+                HStack(spacing: 4) {
+                    Image(systemName: "chevron.right").font(.system(size: 7, weight: .bold))
+                        .rotationEffect(.degrees(expanded ? 90 : 0))
+                    Text(title).font(.system(size: 10)).foregroundStyle(color)
+                    Spacer(minLength: 0)
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .padding(.leading, 4)
+            if expanded { content().padding(.leading, 4) }
+        }
+    }
+}
+
+/// Compact row: family mark, account, plan, one mini bar per pool group,
 /// percentage. Click to see every window with its reset time.
 struct AccountRow: View {
     let account: AccountSnapshot
+    let proxyKind: ProxyKind
+    let dashboardURL: URL?
     let threshold: Double
+    let now: Date
     @State private var expanded: Bool
     @State private var hovering = false
 
-    init(account: AccountSnapshot, threshold: Double, expanded: Bool = false) {
+    init(account: AccountSnapshot, proxyKind: ProxyKind, dashboardURL: URL?, threshold: Double, now: Date,
+         expanded: Bool = false) {
         self.account = account
+        self.proxyKind = proxyKind
+        self.dashboardURL = dashboardURL
         self.threshold = threshold
+        self.now = now
         _expanded = State(initialValue: expanded)
     }
 
@@ -287,6 +639,11 @@ struct AccountRow: View {
         .background(RoundedRectangle(cornerRadius: 7, style: .continuous).fill(Color.primary.opacity(hovering || expanded ? 0.06 : 0)))
         .onHover { hovering = $0 }
         .opacity(account.state == .disabled ? 0.45 : 1)
+        .contextMenu {
+            if let email = account.email { Button("Copy email") { copy(email) } }
+            Button("Copy connection id") { copy(account.id) }
+            if let dashboardURL { Button("Open dashboard") { NSWorkspace.shared.open(dashboardURL) } }
+        }
     }
 
     private var summary: some View {
@@ -295,60 +652,36 @@ struct AccountRow: View {
             VStack(alignment: .leading, spacing: 1) {
                 HStack(spacing: 5) {
                     Text(account.label).font(.system(size: 12)).lineLimit(1).truncationMode(.middle)
-                    if let plan = account.plan {
-                        Text(plan.uppercased()).font(.system(size: 8, weight: .bold))
+                    if let chip = planChip {
+                        Text(chip.text).font(.system(size: 8, weight: .bold))
                             .padding(.horizontal, 4).padding(.vertical, 1)
-                            .background(Capsule().fill(Color.primary.opacity(0.08)))
-                            .foregroundStyle(.secondary)
+                            .background(Capsule().fill(chip.color.opacity(0.12)))
+                            .foregroundStyle(chip.color)
+                            .lineLimit(1)
+                            .help(chip.help)
                     }
                 }
-                if let note { Text(note).font(.system(size: 10)).foregroundStyle(noteColor).lineLimit(1) }
+                if let note { Text(note.text).font(.system(size: 10)).foregroundStyle(note.color).lineLimit(1) }
             }
             Spacer(minLength: 6)
-            let tight = account.quota.windows.sorted { $0.remainingFraction < $1.remainingFraction }.prefix(2)
-            if !tight.isEmpty {
-                VStack(spacing: 3) {
-                    ForEach(Array(tight)) { window in
-                        CapsuleBar(window.remainingFraction,
-                                   color: Design.fill(window.remainingFraction, provider: account.provider, threshold: threshold),
-                                   height: 4)
+            if !bars.isEmpty {
+                HStack(spacing: 4) {
+                    ForEach(bars) { bar in
+                        VStack(spacing: 2) {
+                            if let tag = bar.tag {
+                                Text(tag).font(.system(size: 6, weight: .bold)).foregroundStyle(.secondary)
+                            }
+                            CapsuleBar(bar.value, color: Design.levelColor(bar.value, threshold: threshold), height: 4)
+                        }
+                        .frame(width: bar.tag == nil ? 40 : 30)
                     }
                 }
-                .frame(width: 56)
             }
             Text(percentText).font(.system(size: 12, weight: .semibold)).monospacedDigit()
-                .foregroundStyle(Design.text(account.quota.effectiveRemaining, threshold: threshold))
+                .foregroundStyle(isStale ? Color.secondary : Design.levelColor(account.quota.effectiveRemaining, threshold: threshold))
                 .frame(minWidth: 36, alignment: .trailing)
         }
         .contentShape(Rectangle())
-    }
-
-    @ViewBuilder private var details: some View {
-        switch account.quota {
-        case .windows(let windows):
-            VStack(alignment: .leading, spacing: 8) {
-                ForEach(windows) { window in
-                    VStack(alignment: .leading, spacing: 3) {
-                        HStack {
-                            Text(window.label).font(.system(size: 11, weight: .medium))
-                            Spacer()
-                            Text("\(Design.percent(window.remainingFraction)) left").font(.system(size: 11, weight: .semibold)).monospacedDigit()
-                                .foregroundStyle(Design.text(window.remainingFraction, threshold: threshold))
-                        }
-                        CapsuleBar(window.remainingFraction,
-                                   color: Design.fill(window.remainingFraction, provider: account.provider, threshold: threshold), height: 5)
-                        if let reset = window.resetsAt, window.remainingFraction < 1 {
-                            Text("\(window.remainingFraction <= 0.005 ? "Back" : "Resets") \(Design.relative(reset)) · \(reset.formatted(.dateTime.weekday(.abbreviated).hour().minute().locale(Design.locale)))")
-                                .font(.system(size: 10)).foregroundStyle(.secondary)
-                        }
-                    }
-                }
-            }
-        case .unavailable(let reason):
-            Text(reason).font(.caption).foregroundStyle(.secondary)
-        case .failed(let reason), .rejected(let reason):
-            Label(reason, systemImage: "exclamationmark.triangle.fill").font(.caption).foregroundStyle(.orange)
-        }
     }
 
     private var percentText: String {
@@ -357,26 +690,198 @@ struct AccountRow: View {
         return Design.percent(remaining)
     }
 
-    /// One line under the account name: what is wrong, or which window ran out.
-    private var note: String? {
-        switch account.quota {
-        case .failed(let reason), .rejected(let reason): return reason
-        case .unavailable(let reason): return account.state == .disabled ? nil : reason
-        case .windows(let windows):
-            guard let empty = windows.first(where: { $0.remainingFraction <= 0.005 }) else { return nil }
-            return "\(empty.label) ran out" + (empty.resetsAt.map { " · back \(Design.relative($0))" } ?? "")
+    /// The plan chip, amber and with "was" when the sign-in and the usage disagree.
+    private var planChip: (text: String, color: Color, help: String)? {
+        guard let plan = account.plan, !plan.isEmpty else { return nil }
+        if let metadata = account.metadataPlan, metadata.caseInsensitiveCompare(plan) != .orderedSame {
+            return ("\(plan.uppercased()) · was \(metadata.uppercased())", .orange,
+                    "Sign-in says \(metadata.capitalized), usage says \(plan.capitalized)")
+        }
+        return (plan.uppercased(), .secondary, "Plan: \(plan.capitalized)")
+    }
+
+    private struct Bar: Identifiable {
+        var id: String
+        var tag: String?
+        var value: Double
+    }
+
+    /// One bar per pool group; an account without groups gets one bar.
+    private var bars: [Bar] {
+        let windows = account.quota.windows.filter { $0.role != .detail }
+        let groups = Set(windows.compactMap(\.group)).subtracting(["image", "other"])
+        if groups.isEmpty {
+            guard let value = windows.filter({ $0.role == .limit }).map(\.remainingFraction).min() else { return [] }
+            return [Bar(id: "", tag: nil, value: value)]
+        }
+        return groups.sorted(by: QuotaGroups.precedes).compactMap { group in
+            let limits = windows.filter { $0.group == group && $0.role == .limit }
+            let models = windows.filter { $0.group == group && $0.role == .model }
+            guard let value = limits.map(\.remainingFraction).min() ?? models.map(\.remainingFraction).max() else { return nil }
+            return Bar(id: group, tag: tag(for: group), value: value)
         }
     }
 
-    private var noteColor: Color {
-        if case .windows = account.quota { return .red }
-        if case .failed = account.quota { return .orange }
-        if case .rejected = account.quota { return .orange }
-        return .secondary
+    /// Antigravity bars carry the family: G for Gemini, C&G for Claude & GPT.
+    private func tag(for group: String) -> String? {
+        guard account.provider == .antigravity else { return nil }
+        switch group {
+        case "gemini": return "G"
+        case "claude-gpt": return "C&G"
+        default: return nil
+        }
+    }
+
+    private var isStale: Bool {
+        guard case .windows = account.quota, let observed = account.quotaObservedAt else { return false }
+        return now.timeIntervalSince(observed) > 3 * 3600
+    }
+
+    @ViewBuilder private var details: some View {
+        switch account.quota {
+        case .windows(let windows):
+            VStack(alignment: .leading, spacing: 8) {
+                ForEach(windows.filter { $0.role == .limit }.sorted(by: Self.windowOrder)) { window in
+                    limitWindow(window)
+                }
+                let compact = windows.filter { $0.role != .limit }.sorted(by: Self.windowOrder)
+                if !compact.isEmpty {
+                    VStack(alignment: .leading, spacing: 2) {
+                        ForEach(compact) { window in
+                            HStack(spacing: 6) {
+                                Text(window.label).font(.system(size: 10)).foregroundStyle(.secondary).lineLimit(1)
+                                Spacer()
+                                Text(Design.percent(window.remainingFraction)).font(.system(size: 10, weight: .semibold)).monospacedDigit()
+                                    .foregroundStyle(Design.levelColor(window.remainingFraction, threshold: threshold))
+                                if let reset = window.resetsAt {
+                                    Text(Design.day(reset)).font(.system(size: 9)).foregroundStyle(.tertiary)
+                                }
+                            }
+                        }
+                    }
+                }
+                facts
+            }
+        case .unavailable(let reason):
+            Text(reason).font(.caption).foregroundStyle(.secondary)
+        case .failed(let reason), .rejected(let reason):
+            Label(reason, systemImage: "exclamationmark.triangle.fill").font(.caption).foregroundStyle(.orange)
+        }
+    }
+
+    private func limitWindow(_ window: QuotaWindow) -> some View {
+        VStack(alignment: .leading, spacing: 3) {
+            HStack {
+                Text(window.label).font(.system(size: 11, weight: .medium))
+                Spacer()
+                Text("\(Design.percent(window.remainingFraction)) left").font(.system(size: 11, weight: .semibold)).monospacedDigit()
+                    .foregroundStyle(Design.levelColor(window.remainingFraction, threshold: threshold))
+            }
+            CapsuleBar(window.remainingFraction, color: Design.levelColor(window.remainingFraction, threshold: threshold), height: 5)
+            if let reset = window.resetsAt, window.remainingFraction < 1 {
+                Text("\(window.remainingFraction <= Pool.exhaustedThreshold ? "Back" : "Resets") \(Design.relative(reset, now: now)) · \(reset.formatted(.dateTime.weekday(.abbreviated).hour().minute().locale(Design.locale)))")
+                    .font(.system(size: 10)).foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    @ViewBuilder private var facts: some View {
+        if let observed = account.quotaObservedAt {
+            Text("Read \(Design.relative(observed, now: now))").font(.system(size: 9)).foregroundStyle(.tertiary)
+        }
+        if let next = account.nextReadAt, next > now {
+            Text("Next read \(Design.time(next))").font(.system(size: 9)).foregroundStyle(.tertiary)
+        }
+        ForEach(account.lockedModels.keys.sorted(), id: \.self) { model in
+            if let until = account.lockedModels[model] {
+                Text("\(model) locked until \(Design.time(until))").font(.system(size: 9)).foregroundStyle(.secondary)
+            }
+        }
+        if let credits = account.extras.resetCredits, credits > 0 {
+            Text("\(credits) reset credit\(credits == 1 ? "" : "s")").font(.system(size: 9)).foregroundStyle(.orange)
+        }
+        if account.extras.quotaExceeded == true {
+            Text("Quota exceeded").font(.system(size: 9)).foregroundStyle(.orange)
+        }
+    }
+
+    /// Limit first; model and detail after, by label.
+    private static func windowOrder(_ a: QuotaWindow, _ b: QuotaWindow) -> Bool {
+        let rank: (WindowRole) -> Int = { $0 == .limit ? 0 : 1 }
+        if rank(a.role) != rank(b.role) { return rank(a.role) < rank(b.role) }
+        return a.label < b.label
+    }
+
+    /// The first note that applies: re-login, cooling, read failed, ran out, proxy note.
+    private var note: (text: String, color: Color)? {
+        if case .rejected(let reason) = account.quota {
+            return (reason.isEmpty ? "Needs re-login" : "Needs re-login: \(reason)", .orange)
+        }
+        if let until = account.cooldownUntil, until > now {
+            return ("Cooling down until \(Design.time(until))", .orange)
+        }
+        if account.coolingDown { return ("Cooling down", .orange) }
+        if case .failed(let reason) = account.quota { return ("Read failed: \(reason)", .orange) }
+        if account.lastReadError != nil, let observed = account.quotaObservedAt {
+            return ("Read failed · showing data from \(Design.relative(observed, now: now))", .orange)
+        }
+        if case .windows(let windows) = account.quota,
+           let empty = windows.first(where: { $0.remainingFraction <= Pool.exhaustedThreshold }) {
+            var text = "\(empty.label) ran out"
+            if let reset = empty.resetsAt { text += " · back \(Design.day(reset))" }
+            let credits = account.extras.resetCredits ?? 0
+            if credits > 0 { text += " · \(credits) reset credit\(credits == 1 ? "" : "s")" }
+            return (text, credits > 0 ? .orange : .red)
+        }
+        if let note = account.proxyNote, shows(note) { return (note.message, .secondary) }
+        if isStale, let observed = account.quotaObservedAt {
+            return ("Data from \(Design.relative(observed, now: now))", .secondary)
+        }
+        return nil
+    }
+
+    /// 9Router's note is a dashboard label, so only a recent one; CPA only
+    /// sets it for an error status or an unavailable account.
+    private func shows(_ note: ProxyNote) -> Bool {
+        switch proxyKind {
+        case .nineRouter: note.at.map { now.timeIntervalSince($0) <= 86_400 } ?? false
+        case .cliProxyAPI: true
+        }
+    }
+
+    private func copy(_ text: String) {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(text, forType: .string)
     }
 }
 
 // MARK: Small pieces
+
+struct ProxyProblemBanner: View {
+    let proxy: ProxySnapshot
+    let now: Date
+    let dashboardURL: URL?
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.red)
+            VStack(alignment: .leading, spacing: 2) {
+                Text("\(proxy.name): \(proxy.health.summary)").font(.caption).fixedSize(horizontal: false, vertical: true)
+                if proxy.fetchedAt > .distantPast {
+                    Text("Showing data from \(Design.relative(proxy.fetchedAt, now: now))")
+                        .font(.system(size: 9)).foregroundStyle(.secondary)
+                }
+            }
+            Spacer(minLength: 4)
+            if let dashboardURL {
+                Button("Open dashboard") { NSWorkspace.shared.open(dashboardURL) }
+                    .controlSize(.small)
+            }
+        }
+        .padding(10)
+        .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(Color.red.opacity(0.12)))
+    }
+}
 
 struct Banner: View {
     let text: String
@@ -396,27 +901,6 @@ struct Banner: View {
     }
 }
 
-struct Pill: View {
-    let title: String
-    var color: Color? = nil
-    let selected: Bool
-    let action: () -> Void
-
-    var body: some View {
-        Button(action: action) {
-            HStack(spacing: 5) {
-                if let color { Circle().fill(color).frame(width: 7, height: 7) }
-                Text(title).font(.system(size: 11, weight: .medium))
-            }
-            .padding(.horizontal, 10).padding(.vertical, 4)
-            .background(Capsule().fill(selected ? Color.accentColor.opacity(0.18) : Color.primary.opacity(0.06)))
-            .overlay(Capsule().strokeBorder(selected ? Color.accentColor.opacity(0.6) : .clear, lineWidth: 1))
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel(title)
-    }
-}
-
 struct FooterButton: View {
     let title: String
     let symbol: String
@@ -431,11 +915,12 @@ struct FooterButton: View {
 
     var body: some View {
         Button(action: action) {
-            Label(title, systemImage: symbol).font(.system(size: 12))
-                .padding(.horizontal, 8).padding(.vertical, 4)
+            Image(systemName: symbol).font(.system(size: 12, weight: .medium))
+                .frame(width: 24, height: 22)
                 .background(RoundedRectangle(cornerRadius: 6).fill(Color.primary.opacity(hovering ? 0.08 : 0)))
         }
         .buttonStyle(.plain)
+        .help(title)
         .accessibilityLabel(title)
         .onHover { hovering = $0 }
     }

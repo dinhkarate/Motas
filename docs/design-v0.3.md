@@ -1601,3 +1601,52 @@ own the remaining work; do not reach ahead.
     afresh.
   - `approve()` caches nothing when the user declines the 0.2 migration
     prompt, so Allow… stays on offer and retries it (amends the S3 note).
+- S5: `Design.locale` is `en_GB`: it is the one locale that gives the spec's
+  "17 Nov", "14:05" and "2 min ago" together. `en_US` gives "Nov 17" and
+  "11:10 PM", and the system locale may be Vietnamese.
+- S5: Level and family colours are dynamic. The §9 table's hex values are the
+  dark values; light mode uses darker equivalents so numbers and badges stay
+  readable on white: good `#12864a`, low `#a86400`, critical `#c02b46`;
+  Codex `#3f4652`, Gemini `#2f6fed`, Claude `#b5502f`, xAI `#374151`, others
+  `#4b5563`. `Design.adaptive` resolves through `NSColor`'s appearance
+  provider, so one token serves the panel, the desktop widget and WidgetKit.
+- S5: Antigravity's Claude & GPT lane wears the Claude family ("A", orange),
+  not the Gemini star. `Design.family(for:)` reads the pool id and
+  `PoolSummary.familyProvider` exposes it to the widget and history.
+- S5: The panel footer is icon-only (History, Settings, Model Pulse toggle,
+  Quit). Four labelled buttons wrap at 340 pt; each icon keeps `.help` and an
+  accessibility label. Pool-card detail and lane lines may use two lines, so
+  "5/9 usable · back 17 Nov · 3 reset credits" stays readable.
+- S5: `PanelView` computes the stale header itself (enabled proxies against
+  their snapshot age) because it needs the settings and the environment
+  clock. `AppModel.headerStatus` remains the offline/updated base used by
+  tests.
+- S5: The first-run card and the General tab both edit the S6 preferences.
+  "Reset position" and the per-pool "Show on desktop" menu wait for S6.
+- S5: WidgetKit uses `Design.relative(fetchedAt, now: entry.date)` rather
+  than `Text(date, style: .relative)`. The latter follows the system
+  language (Vietnamese here) and ignores the environment locale, so the
+  English UI would mix languages. The 15-minute timeline still refreshes the
+  age.
+- S5: History draws one line per pool id, names it from the saved snapshot,
+  filters to seven days and colours each series with the family accent. It
+  no longer draws point symbols; a series with one sample shows only the
+  axes until the next refresh.
+- S5: `motas-render` defaults to the production 9Router fixture through
+  `FixtureHTTP` and the real adapter, with the fixed clock
+  `2026-11-02T16:10:30Z` and two refreshes so rejected credentials confirm.
+  It seeds a week of render-only history samples. `--live` uses
+  `MOTAS_9R_URL` and `MOTAS_9R_TOKEN` or `MOTAS_9R_PASSWORD`.
+- S5: Offscreen `cacheDisplay` does not draw SwiftUI `TabView` or segmented
+  controls (a minimal repro shows the same), so `settings-*.png` shows the
+  window shell without its tab bar. `settings-proxies-*.png` and
+  `settings-general-*.png` render the tabs directly.
+- S5: `AppModel.now` and `savedPoolTitles` are read-only views for the UI.
+  `Pool.tier` and `ProxyAuth.needsSecret` became public so the panel and the
+  editor share the CLI's rules.
+- S5: Qoder is correct as rendered: nine 401s are rejected ("Needs re-login
+  ×9") and the tenth active connection reports `isQuotaExceeded` with zero
+  totals, so it appears under "Not metered … Qoder (quota exceeded)".
+- S5: The menu bar gauge is an AppKit template image, because an
+  `ImageRenderer` label crashes inside `MenuBarExtra`. A configured app with
+  no pool falls back to "Motas" rather than drawing an empty gauge.

@@ -13,7 +13,7 @@ public enum ProxyAuth: String, Codable, Sendable {
     public static func newDefault(for kind: ProxyKind) -> ProxyAuth { kind == .nineRouter ? .cliToken : .managementKey }
 
     /// A 9Router can run without login, so only a password may be empty.
-    var needsSecret: Bool { self != .password }
+    public var needsSecret: Bool { self != .password }
 
     /// Derives a 9Router CLI token on its server: the first 16 hex characters
     /// of sha256(machine-id + "9r-cli-auth" + cli-secret).
