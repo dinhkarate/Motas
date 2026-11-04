@@ -165,6 +165,24 @@ func run() async {
         render(HistoryView(model: model), "history", to: out, dark: dark)
     }
 
+    // Model Pulse is a fixed dark panel, so one appearance is enough.
+    model.desktopWidgetCards = nil
+    render(DesktopWidgetView(model: model), "desktop-widget", to: out, dark: true)
+    model.desktopWidgetCards = ["codex|free|", "unmetered|openrouter", "antigravity||gemini",
+                                "unmetered|qoder", "antigravity||claude-gpt", "unmetered|xai"]
+    render(DesktopWidgetView(model: model), "desktop-widget-status", to: out, dark: true)
+    for state in [DesktopStatusCard.State.live, .check, .off] {
+        let detail = switch state {
+        case .live: "2 connections"
+        case .check: "Proxy unhealthy"
+        case .off: "No active account"
+        }
+        render(PulseStatusCard(status: DesktopStatusCard(provider: Provider(rawValue: "openrouter"), name: "OpenRouter",
+                                                         state: state, detail: detail))
+                .frame(width: 150), "desktop-status-\(state.rawValue)", to: out, dark: true)
+    }
+    model.desktopWidgetCards = nil
+
     if let first = model.settings.proxies.first {
         let editor = ProxyEditor(model: model, original: first, isNew: false, dismiss: {},
                                  initialTestResult: await model.test(first, secret: nil))

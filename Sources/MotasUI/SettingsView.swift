@@ -366,8 +366,17 @@ struct GeneralTab: View {
                 }
             }
             Toggle("Show Model Pulse on desktop", isOn: $model.desktopWidgetEnabled)
-            Toggle("Lock desktop widget position", isOn: $model.desktopWidgetLocked)
+            HStack {
+                Toggle("Lock desktop widget position", isOn: $model.desktopWidgetLocked)
+                    .disabled(!model.desktopWidgetEnabled)
+                Spacer()
+                Button("Reset Position") {
+                    NotificationCenter.default.post(name: .motasResetDesktopWidgetPosition, object: nil)
+                }
+                .controlSize(.small)
                 .disabled(!model.desktopWidgetEnabled)
+                .help("Move Model Pulse back to its default corner")
+            }
             if let error { Text(error).font(.caption).foregroundStyle(.red) }
         }
         .formStyle(.grouped)

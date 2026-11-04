@@ -116,6 +116,28 @@ struct PoolTests {
         #expect(codex.usable == 2)
     }
 
+    @Test func membersCarryTheirOwnValuesAndPlans() throws {
+        let snapshot = Snapshot(fetchedAt: t0, proxies: [proxy([
+            account("a", .windows([limit(0.25)]), plan: "free"),
+            account("b", .windows([limit(0.75)]), plan: "Go"),
+            account("c", .rejected("Credential refresh failed"), plan: "free"),
+        ])])
+        let codex = try #require(Pool.summarize(snapshot, now: t0, staleLimit: 1800).first)
+        let members = Pool.members(snapshot, key: codex.key, now: t0, staleLimit: 1800)
+        #expect(members.map(\.label) == ["a@example.com", "b@example.com", "c@example.com"])
+        #expect(members.map(\.value) == [0.25, 0.75, nil])
+        #expect(members.map(\.plan) == ["free", "Go", "free"])
+    }
+
+    @Test func membersUseTheNewestReadOfOneAccount() throws {
+        let older = account("a", .windows([limit(0.25)]), observed: t0, identity: "same")
+        let newer = account("a", .windows([limit(0.75)]), observed: t0 + 60, identity: "same")
+        let snapshot = Snapshot(fetchedAt: t0 + 60, proxies: [proxy([older], health: .ok), proxy([newer], health: .ok)])
+        let codex = try #require(Pool.summarize(snapshot, now: t0 + 60, staleLimit: 1800).first)
+        let members = Pool.members(snapshot, key: codex.key, now: t0 + 60, staleLimit: 1800)
+        #expect(members.count == 1 && members.first?.value == 0.75)
+    }
+
     @Test func windowsThatResetSinceTheReadAreUnknown() throws {
         let codex = try #require(pools(proxy([
             account("reset", .windows([limit(0, reset: t0 - 60)]), observed: t0 - 600),

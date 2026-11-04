@@ -1650,3 +1650,45 @@ own the remaining work; do not reach ahead.
 - S5: The menu bar gauge is an AppKit template image, because an
   `ImageRenderer` label crashes inside `MenuBarExtra`. A configured app with
   no pool falls back to "Motas" rather than drawing an empty gauge.
+- S6: `DesktopWidgetController` owns one borderless `NSPanel` at
+  `CGWindowLevelForKey(.desktopIconWindow) + 1` with
+  `[.canJoinAllSpaces, .stationary, .ignoresCycle]`. It never becomes key or
+  main, is shown with `orderFront` and hidden with `orderOut`, and is never
+  closed. Its hosting view and the panel itself are forced to `.darkAqua`;
+  Model Pulse keeps the fixed `Design.Pulse` palette in both system
+  appearances.
+- S6: The panel frame is autosaved as `MotasModelPulse`. The first launch puts
+  its top-left corner 30 pt from the left and 300 pt from the top of the main
+  screen's visible frame. A height change keeps the top edge fixed, and the
+  frame is clamped into a visible screen on
+  `NSApplication.didChangeScreenParametersNotification` and whenever the card
+  list changes. Settings' "Reset Position" posts
+  `.motasResetDesktopWidgetPosition`, moves the panel back and saves the new
+  frame.
+- S6: `desktopWidget.cards == nil` means "the metered pools, in fixed order".
+  The first toggle materialises that list (the first six pools), so a pool
+  hidden later stays hidden when new pools appear. At most six cards; adding a
+  seventh is disabled in both menus. Status cards use the id
+  `unmetered|<provider.rawValue>`.
+- S6: A status card is LIVE with at least one active, non-rejected account on
+  a healthy proxy; CHECK with active connections but no healthy proxy (or all
+  rejected); OFF with none active. A saved status id whose provider vanished
+  stays as OFF. Qoder's zero-total active connection reports "Quota exceeded"
+  and LIVE, consistent with the S5 note.
+- S6: `Pool.members(_:key:now:staleLimit:)` returns the deduped per-account
+  values and plans for one pool, so a card with ≤ 3 members draws one meter per
+  member; larger pools draw one `pool.reserve` meter. `PoolSummary` still
+  carries no per-member data.
+- S6: Pool-card titles shrink to 85% before truncating, and the detail splits
+  the plan (truncatable) from "n/m usable" (fixed), so "CLAUDE & GPT" and
+  "AI Plus + Starter · 2/2 usable" stay readable at 340 pt. Card padding is
+  11 pt.
+- S6: The widget's "Open Motas Settings" activates the app and raises an
+  existing Settings window; if none exists it posts `.motasOpenSettings`, which
+  `MenuBarLabel` turns into `openWindow(id: "settings")`.
+- S6: The footer counts an enabled proxy as stale when it is missing from the
+  snapshot, unhealthy, or older than `max(120, interval × 1.5)`.
+- S6: `motas-render` writes `desktop-widget-dark.png`,
+  `desktop-widget-status-dark.png` and the three `desktop-status-*-dark.png`
+  cards. The status fixtures use the same details as the data rule:
+  "2 connections", "Proxy unhealthy" and "No active account".

@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 import MotasCore
 import MotasDesign
 import SwiftUI
@@ -10,6 +11,7 @@ import SwiftUI
 /// must stay a plain Image/Text (ImageRenderer there crashes).
 public struct MenuBarLabel: View {
     @ObservedObject var model: AppModel
+    @Environment(\.openWindow) private var openWindow
 
     public init(model: AppModel) { self.model = model }
 
@@ -28,6 +30,10 @@ public struct MenuBarLabel: View {
                 Text("\(hasActionableProblem ? "⚠︎ " : "")\(pool.title) \(pool.reserve.map(Design.percentWhole) ?? "—")")
                     .monospacedDigit()
             }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .motasOpenSettings)) { _ in
+            openWindow(id: "settings")
+            NSApplication.shared.activate(ignoringOtherApps: true)
         }
     }
 
@@ -177,6 +183,10 @@ public struct PanelView: View {
                     Button(model.menuBarPool == pool.id ? "Unpin from menu bar" : "Pin to menu bar") {
                         model.menuBarPool = model.menuBarPool == pool.id ? nil : pool.id
                     }
+                    Button(model.isOnDesktop(poolID: pool.id) ? "Hide from desktop" : "Show on desktop") {
+                        model.toggleDesktopCard(pool.id)
+                    }
+                    .disabled(!model.isOnDesktop(poolID: pool.id) && model.desktopCards.count >= DesktopWidgetData.limit)
                 }
             }
         }
@@ -464,15 +474,42 @@ struct ProxySection: View {
 
     private var notMetered: some View {
         DisclosureRow(title: "Not metered: \(unmeteredSummary)", color: .secondary, expanded: $showNotMetered) {
-            VStack(alignment: .leading, spacing: 2) {
-                ForEach(unmeteredAccounts) { account in
-                    Text("\(account.label) — \(message(account))")
-                        .font(.system(size: 9)).foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
+            VStack(alignment: .leading, spacing: 7) {
+                ForEach(unmeteredGroups) { group in
+                    VStack(alignment: .leading, spacing: 2) {
+                        HStack(spacing: 6) {
+                            Text(group.name + (group.count > 1 ? " ×\(group.count)" : ""))
+                                .font(.system(size: 10, weight: .semibold)).foregroundStyle(.secondary)
+                            if group.quotaExceeded {
+                                Text("quota exceeded").font(.system(size: 9)).foregroundStyle(.orange)
+                            }
+                            Spacer(minLength: 4)
+                            if !hasPool(group.provider) {
+                                Button(model.isOnDesktop(provider: group.provider) ? "Hide from desktop" : "Show on desktop") {
+                                    model.toggleDesktopCard(DesktopWidgetData.statusID(group.provider))
+                                }
+                                .buttonStyle(.link)
+                                .font(.system(size: 9))
+                                .disabled(!model.isOnDesktop(provider: group.provider)
+                                    && model.desktopCards.count >= DesktopWidgetData.limit)
+                                .help(model.isOnDesktop(provider: group.provider)
+                                    ? "Hide \(group.name) from Model Pulse" : "Show \(group.name) on Model Pulse")
+                            }
+                        }
+                        ForEach(unmeteredAccounts.filter { $0.provider == group.provider }) { account in
+                            Text("\(account.label) — \(message(account))")
+                                .font(.system(size: 9)).foregroundStyle(.secondary)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                    }
                 }
             }
             .padding(.leading, 12)
         }
+    }
+
+    private func hasPool(_ provider: Provider) -> Bool {
+        model.pools.contains { $0.key.provider == provider }
     }
 
     private func message(_ account: AccountSnapshot) -> String {

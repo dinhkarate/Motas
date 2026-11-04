@@ -62,6 +62,16 @@ public struct PoolSummary: Codable, Sendable, Hashable, Identifiable {
     public var resetCredits = 0
 }
 
+/// One account of a pool, for surfaces that need per-account detail: the
+/// desktop widget's thin meters and plan names.
+public struct PoolMember: Sendable, Hashable, Identifiable {
+    public var id: String
+    public var label: String
+    public var plan: String?
+    /// nil when the account is unknown or rejected.
+    public var value: Double?
+}
+
 /// Pool math. Everything here is a pure function of a snapshot.
 public enum Pool {
     /// At or below this, an account is out.
@@ -238,6 +248,25 @@ public enum Pool {
             }
             .sorted { rank($0.id, laneOrder, last: "models") < rank($1.id, laneOrder, last: "models") }
         return pool
+    }
+
+    /// The pool's members, deduped and in label order. A pool card can draw one
+    /// meter per member only when there are at most three of them.
+    public static func members(_ snapshot: Snapshot, key: PoolKey, now: Date,
+                               staleLimit: TimeInterval) -> [PoolMember] {
+        var candidates: [Candidate] = []
+        for proxy in snapshot.proxies {
+            for account in proxy.accounts where account.state == .active && account.provider == key.provider
+                && tier(account.provider, plan: account.plan) == key.tier {
+                candidates.append(Candidate(account: account, fetchedAt: proxy.fetchedAt))
+            }
+        }
+        return dedupe(candidates.compactMap { member($0, in: key, now: now) })
+            .map { member in
+                PoolMember(id: member.account.id, label: member.account.label, plan: member.account.plan,
+                           value: member.value(now: now, staleLimit: staleLimit))
+            }
+            .sorted { ($0.label, $0.id) < ($1.label, $1.id) }
     }
 
     /// Antigravity pools are titled by their family ("Gemini"); others by the

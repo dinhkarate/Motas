@@ -189,6 +189,42 @@ public final class AppModel: ObservableObject {
         return snapshot.fetchedAt > .distantPast ? .updated(snapshot.fetchedAt) : nil
     }
 
+    // MARK: Desktop widget
+
+    /// The status cards Model Pulse could show, one per unmetered provider.
+    var desktopStatusCards: [DesktopStatusCard] {
+        DesktopWidgetData.statuses(snapshot, pools: pools, order: desktopWidgetCards)
+    }
+
+    /// Model Pulse's cards in saved order, else the metered pools; at most six.
+    var desktopCards: [DesktopCard] {
+        DesktopWidgetData.cards(pools: pools, statuses: desktopStatusCards, order: desktopWidgetCards)
+    }
+
+    /// Every metered pool in the first six is on the desktop by default; a
+    /// status card is not.
+    func isOnDesktop(poolID: String) -> Bool {
+        if let desktopWidgetCards { return desktopWidgetCards.contains(poolID) }
+        return pools.prefix(DesktopWidgetData.limit).contains { $0.id == poolID }
+    }
+
+    func isOnDesktop(provider: Provider) -> Bool {
+        desktopWidgetCards?.contains(DesktopWidgetData.statusID(provider)) ?? false
+    }
+
+    /// Adds or removes one card. The first change materialises the default
+    /// order, so a hidden pool stays hidden when new pools appear.
+    func toggleDesktopCard(_ id: String) {
+        var ids = desktopWidgetCards ?? pools.prefix(DesktopWidgetData.limit).map(\.id)
+        if let index = ids.firstIndex(of: id) {
+            ids.remove(at: index)
+        } else {
+            guard ids.count < DesktopWidgetData.limit else { return }
+            ids.append(id)
+        }
+        desktopWidgetCards = ids
+    }
+
     // MARK: Refresh
 
     /// Watches the system, refreshes, then starts the timer. The app delegate

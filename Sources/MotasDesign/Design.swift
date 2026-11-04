@@ -111,6 +111,22 @@ public enum Design {
     }
 
     public static func count(_ n: Int, _ noun: String) -> String { "\(n) \(noun)\(n == 1 ? "" : "s")" }
+
+    /// The desktop widget's fixed dark palette. It does not follow the system
+    /// appearance: Model Pulse is a desktop surface, not a window.
+    public enum Pulse {
+        public static let panelTop = Color(hex: 0x15171d)
+        public static let panelBottom = Color(hex: 0x0a0b0f)
+        public static let glow = Color(hex: 0x7e95ff)
+        public static let text = Color(hex: 0xf6f7fa)
+        public static let name = Color(hex: 0xaeb3bc)
+        public static let detail = Color(hex: 0x686e78)
+        public static let eyebrow = Color(hex: 0x777d89)
+        public static let footer = Color(hex: 0x8b929e)
+        public static let age = Color(hex: 0x696f79)
+        public static let button = Color(hex: 0xaeb3bd)
+        public static let unknown = Color(hex: 0x818791)
+    }
 }
 
 extension NSColor {
@@ -120,6 +136,10 @@ extension NSColor {
                   blue: CGFloat(hex & 0xFF) / 255,
                   alpha: 1)
     }
+}
+
+extension Color {
+    init(hex: UInt32) { self.init(nsColor: NSColor(hex: hex)) }
 }
 
 extension PoolSummary {

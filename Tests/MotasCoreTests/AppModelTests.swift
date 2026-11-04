@@ -355,6 +355,20 @@ struct AppModelTests {
         #expect(relaunched.desktopWidgetEnabled && relaunched.desktopWidgetLocked && relaunched.onboardingDone)
     }
 
+    @Test func desktopCardsMaterialiseTheDefaultOrder() async throws {
+        let (m, _) = try routerModel(RouterState(["a": ("plus", 80)]))
+        await m.refresh(force: false, reason: "test").value
+        #expect(m.desktopCards.map(\.id) == ["codex|plus|"])
+        #expect(m.isOnDesktop(poolID: "codex|plus|"))
+
+        m.toggleDesktopCard("codex|plus|")
+        #expect(m.desktopWidgetCards?.isEmpty == true && m.desktopCards.isEmpty)
+        #expect(!m.isOnDesktop(poolID: "codex|plus|"))
+
+        m.toggleDesktopCard("codex|plus|")
+        #expect(m.desktopWidgetCards == ["codex|plus|"] && m.desktopCards.map(\.id) == ["codex|plus|"])
+    }
+
     @Test func aNewIntervalRestartsTheTimer() async throws {
         let m = h.model(http: router(RouterState([:])))
         defer { m.stop() }

@@ -32,11 +32,13 @@ public struct MotasApp: App {
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDelegate {
     let model = AppModel()
+    private var desktopWidget: DesktopWidgetController?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApplication.shared.setActivationPolicy(.accessory)
         if Bundle.main.isAppBundle { UNUserNotificationCenter.current().delegate = self }
         model.start()
+        desktopWidget = DesktopWidgetController(model: model)
     }
 
     /// Banners show even while Motas is active (its panel or Settings open).
