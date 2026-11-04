@@ -77,17 +77,22 @@ public struct ProxyState: Codable, Sendable, Hashable {
 
     /// Rebuilds the records from a restored snapshot. 0.2 snapshots have no
     /// `quotaObservedAt`; their windows were read at the proxy's `fetchedAt`.
+    /// Their plans were kept as read ("unknown", "Antigravity"), so they are
+    /// normalised like any plan read now.
     public init(seed: ProxySnapshot?) {
         accounts = (seed?.accounts ?? []).map { account in
             var account = account
             if case .windows = account.quota, account.quotaObservedAt == nil { account.quotaObservedAt = seed?.fetchedAt }
+            account.plan = ProviderUsage.normalisedPlan(account.plan, provider: account.provider)
+            account.metadataPlan = ProviderUsage.normalisedPlan(account.metadataPlan, provider: account.provider)
             return account
         }
         lastSuccessAt = seed?.lastSuccessAt
         consecutiveFailures = seed?.consecutiveFailures ?? 0
         records = [:]
         for account in accounts {
-            var record = AccountRecord(plan: account.plan, extras: account.extras, nextReadAt: account.nextReadAt)
+            var record = AccountRecord(plan: account.plan, extras: account.extras, rateLimitedUntil: account.rateLimitedUntil,
+                                       nextReadAt: account.nextReadAt)
             switch account.quota {
             case .windows(let windows):
                 record.windows = windows
@@ -179,8 +184,8 @@ public struct ProxyState: Codable, Sendable, Hashable {
             id: account.id, provider: account.provider, label: account.label, email: account.email, identity: account.identity,
             plan: record.plan ?? account.metadataPlan, metadataPlan: account.metadataPlan,
             state: account.isDisabled ? .disabled : .active, quota: .failed("Not read yet"), nextReadAt: record.nextReadAt,
-            cooldownUntil: account.cooldownUntil, coolingDown: account.coolingDown, lockedModels: account.lockedModels,
-            proxyNote: account.proxyNote, extras: record.extras, displayHint: account.displayHint)
+            rateLimitedUntil: record.rateLimitedUntil, cooldownUntil: account.cooldownUntil, coolingDown: account.coolingDown,
+            lockedModels: account.lockedModels, proxyNote: account.proxyNote, extras: record.extras, displayHint: account.displayHint)
         if record.isRejected {
             snapshot.quota = .rejected(record.lastError ?? "")
         } else if let windows = record.windows {

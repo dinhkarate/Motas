@@ -212,7 +212,8 @@ public enum Pool {
             if value <= exhaustedThreshold {
                 pool.exhausted += 1
                 pool.resetCredits += account.extras.resetCredits ?? 0
-                back = [back, member.recovery].compactMap { $0 }.max()
+                // Back when its windows recover, not before a cooldown ends; unknown when they do not say.
+                back = member.recovery.map { max($0, cooldown ?? $0) }
             } else if cooldown != nil || account.coolingDown {
                 pool.coolingDown += 1
             } else {

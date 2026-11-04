@@ -76,14 +76,15 @@ final class CLIMachine: @unchecked Sendable {
     }
 
     /// Runs `motas <args>` on a thread of its own: the CLI waits on
-    /// semaphores, which must never hold a cooperative thread.
-    func motas(_ args: [String], input: [String] = [], tty: Bool = false) async -> CLIRun {
+    /// semaphores, which must never hold a cooperative thread. `bundle` is
+    /// where the binary runs from: Motas.app unless a test says otherwise.
+    func motas(_ args: [String], input: [String] = [], tty: Bool = false, bundle: URL = tempURL("Motas.app")) async -> CLIRun {
         let terminal = Terminal(input: input)
         let env = CLIEnvironment(settings: settings, secrets: secrets, http: http, readSecret: { terminal.readSecret($0) },
                                  notify: { [self] in lock.withLock { _notifications += 1 } },
                                  out: { terminal.write($0) }, err: { terminal.writeError($0) }, isTTY: tty)
         let code = await withCheckedContinuation { (continuation: CheckedContinuation<Int32?, Never>) in
-            Thread { continuation.resume(returning: MotasCLI.run(["motas"] + args, env: env)) }.start()
+            Thread { continuation.resume(returning: MotasCLI.run(["motas"] + args, bundle: bundle, env: env)) }.start()
         }
         let run = CLIRun(code: code, out: terminal.out, err: terminal.err, prompts: terminal.prompts)
         lock.withLock { _transcript += [run.out, run.err] + run.prompts }
@@ -99,6 +100,18 @@ struct CLITests {
             #expect(await machine.motas(args).code == nil)
         }
         #expect(machine.transcript.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+    }
+
+    /// Through the Homebrew `motas` symlink the binary is outside Motas.app:
+    /// anything but a command prints help rather than start a second app.
+    @Test func outsideTheAppAnythingButACommandIsAUsageError() async {
+        let machine = CLIMachine()
+        let symlinked = URL(fileURLWithPath: "/opt/homebrew/bin")
+        for args in [[], ["status"], ["-psn_0_12345"]] {
+            let run = await machine.motas(args, bundle: symlinked)
+            #expect(run.code == 64 && run.out.isEmpty && run.err.hasPrefix("Usage:"))
+        }
+        #expect(await machine.motas(["version"], bundle: symlinked).code == 0)
     }
 
     @Test func helpCarriesTheRecipeAndTheWarning() async {

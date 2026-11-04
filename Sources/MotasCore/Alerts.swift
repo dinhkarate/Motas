@@ -36,7 +36,8 @@ public struct QuotaAlert: Sendable, Hashable {
 ///   alerted, and nothing is sent.
 /// - Pool conditions are confirmed: they must hold on two evaluations whose
 ///   snapshots were fetched at least half a refresh interval apart, so a
-///   manual refresh right after a timer refresh cannot confirm them.
+///   manual refresh right after a timer refresh cannot confirm them. A pool
+///   that was absent from an evaluation starts its confirmation afresh.
 /// - A low pool (two or more measured, reserve under the threshold) re-arms
 ///   silently at the threshold + 5 %. An exhausted pool (members, but none
 ///   usable or unknown) re-arms when an account is usable again, which is
@@ -56,27 +57,33 @@ public struct AlertEngine: Sendable {
     /// "proxy/account" of the accounts rejected at the previous evaluation.
     private var rejected: Set<String> = []
     private var baselined = false
+    /// Days in alert texts ("17 Nov") are in this zone: the user's.
+    private let timeZone: TimeZone
 
-    public init() {}
+    public init(timeZone: TimeZone = .autoupdatingCurrent) {
+        self.timeZone = timeZone
+    }
 
     public mutating func evaluate(_ snapshot: Snapshot, pools: [PoolSummary], threshold: Double, refreshInterval: TimeInterval,
                                   online: Bool, now: Date) -> [QuotaAlert] {
         let at = snapshot.fetchedAt
         var alerts: [QuotaAlert] = []
+        var evaluated: Set<String> = []
         for pool in pools {
             let low = QuotaAlert.identifier(.poolLow, key: pool.id), exhausted = QuotaAlert.identifier(.poolExhausted, key: pool.id)
+            evaluated.formUnion([low, exhausted])
             if let reserve = pool.reserve, reserve >= threshold + 0.05 { _ = rearm(low) }
             if fires(low, holds: pool.measured >= 2 && (pool.reserve ?? 1) < threshold, confirm: refreshInterval / 2, at: at) {
-                alerts.append(QuotaAlert(kind: .poolLow, key: pool.id, title: "\(pool.title) is low", body: Self.detail(pool),
+                alerts.append(QuotaAlert(kind: .poolLow, key: pool.id, title: "\(pool.title) is low", body: detail(pool),
                                          poolID: pool.id))
             }
             if pool.usable > 0, rearm(exhausted) {
                 alerts.append(QuotaAlert(kind: .poolAvailable, key: pool.id,
                                          title: "\(pool.title): \(Self.count(pool.usable, "account")) usable again",
-                                         body: Self.detail(pool), poolID: pool.id))
+                                         body: detail(pool), poolID: pool.id))
             }
             if fires(exhausted, holds: pool.members >= 1 && pool.usable == 0 && pool.unknown == 0, confirm: refreshInterval / 2, at: at) {
-                var body = pool.nextRecoveryAt.map { ["Until \(Self.day($0))"] } ?? []
+                var body = pool.nextRecoveryAt.map { ["Until \(day($0))"] } ?? []
                 if pool.resetCredits > 0 { body.append(Self.count(pool.resetCredits, "reset credit")) }
                 alerts.append(QuotaAlert(kind: .poolExhausted, key: pool.id, title: "\(pool.title): no usable account",
                                          body: body.joined(separator: " · "), poolID: pool.id))
@@ -86,6 +93,7 @@ public struct AlertEngine: Sendable {
         var rejectedNow: Set<String> = []
         for proxy in snapshot.proxies {
             let key = proxy.id.uuidString, down = QuotaAlert.identifier(.proxyDown, key: key)
+            evaluated.insert(down)
             if proxy.health.isOK, rearm(down) {
                 alerts.append(QuotaAlert(kind: .proxyBack, key: key, title: "\(proxy.name) is back", body: "Quota monitoring resumed.",
                                          proxyID: proxy.id))
@@ -109,6 +117,8 @@ public struct AlertEngine: Sendable {
             }
         }
         rejected = rejectedNow
+        // A condition holds "since" only while it is evaluated every time.
+        since = since.filter { evaluated.contains($0.key) }
         baselined = true
         return alerts
     }
@@ -149,17 +159,19 @@ public struct AlertEngine: Sendable {
     }
 
     /// "18% · 3/9 usable · next back 17 Nov · 3 reset credits"
-    static func detail(_ pool: PoolSummary) -> String {
+    func detail(_ pool: PoolSummary) -> String {
         var parts = pool.reserve.map { ["\(Int(($0 * 100).rounded()))%"] } ?? []
         parts.append("\(pool.usable)/\(pool.members) usable")
         if let back = pool.nextRecoveryAt { parts.append("next back \(day(back))") }
-        if pool.resetCredits > 0 { parts.append(count(pool.resetCredits, "reset credit")) }
+        if pool.resetCredits > 0 { parts.append(Self.count(pool.resetCredits, "reset credit")) }
         return parts.joined(separator: " · ")
     }
 
-    /// "17 Nov", in the user's time zone.
-    static func day(_ date: Date) -> String {
-        date.formatted(.dateTime.day().month(.abbreviated).locale(Locale(identifier: "en_GB")))
+    /// "17 Nov", in `timeZone`.
+    func day(_ date: Date) -> String {
+        var style = Date.FormatStyle.dateTime.day().month(.abbreviated).locale(Locale(identifier: "en_GB"))
+        style.timeZone = timeZone
+        return date.formatted(style)
     }
 
     static func count(_ n: Int, _ noun: String) -> String { "\(n) \(noun)\(n == 1 ? "" : "s")" }

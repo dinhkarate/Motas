@@ -194,7 +194,7 @@ struct AlertTests {
     }
 
     @Test func anExhaustedPoolAndItsRecovery() throws {
-        var engine = AlertEngine()
+        var engine = AlertEngine(timeZone: try #require(TimeZone(identifier: "UTC")))
         let out = codexPool(0, back: try #require(Dates.iso("2026-11-17T12:00:00Z")), credits: 4)
         _ = evaluate(&engine, snapshot(at: 0), [codexPool(0.5)])
         #expect(evaluate(&engine, snapshot(at: 300), [out]).isEmpty)
@@ -207,6 +207,24 @@ struct AlertTests {
         #expect(available.map(\.identifier) == ["poolAvailable:codex|free|"])
         #expect(available.first?.title == "Codex: 1 account usable again")
         #expect(evaluate(&engine, snapshot(at: 1200), [codexPool(0.375, usable: 1)]).isEmpty)
+    }
+
+    /// The day is the user's: noon UTC is already the next day in Auckland.
+    @Test func daysAreInTheEnginesTimeZone() throws {
+        let noon = try #require(Dates.iso("2026-11-17T12:00:00Z"))
+        #expect(AlertEngine(timeZone: try #require(TimeZone(identifier: "UTC"))).day(noon) == "17 Nov")
+        #expect(AlertEngine(timeZone: try #require(TimeZone(identifier: "Pacific/Auckland"))).day(noon) == "18 Nov")
+    }
+
+    /// A pool missing from one evaluation (its proxy disabled, say) does not
+    /// count that time as holding: it is confirmed afresh when it is back.
+    @Test func anAbsentPoolIsConfirmedAfresh() {
+        var engine = AlertEngine()
+        _ = evaluate(&engine, snapshot(at: 0), [codexPool(0.5)])
+        #expect(evaluate(&engine, snapshot(at: 300), [codexPool(0)]).isEmpty)
+        #expect(evaluate(&engine, snapshot(at: 600), []).isEmpty)
+        #expect(evaluate(&engine, snapshot(at: 900), [codexPool(0)]).isEmpty)
+        #expect(evaluate(&engine, snapshot(at: 1200), [codexPool(0)]).map(\.kind) == [.poolLow, .poolExhausted])
     }
 
     @Test func anUnknownMemberBlocksExhausted() {

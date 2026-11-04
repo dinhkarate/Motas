@@ -40,17 +40,21 @@ func run() async {
                                history: tmp.appendingPathComponent("history.json"),
                                snapshot: tmp.appendingPathComponent("snapshot.json"))
 
-    let empty = AppModel(paths: paths, secrets: InMemorySecretStore(), autoRefresh: false)
+    func makeModel() -> AppModel {
+        AppModel(AppEnvironment(paths: paths, secrets: InMemorySecretStore(), http: URLSessionHTTPClient(), notifier: SystemNotifier(),
+                                preferences: UIPreferences()))
+    }
+    let empty = makeModel()
     for dark in [false, true] { render(PanelView(model: empty), "panel-empty", to: out, dark: dark) }
 
-    let model = AppModel(paths: paths, secrets: InMemorySecretStore(), autoRefresh: false)
+    let model = makeModel()
     if let cpa = env["MOTAS_CPA_URL"].flatMap(URL.init(string:)) {
         try? await model.save(ProxyConfig(name: "obsession CPA", kind: .cliProxyAPI, baseURL: cpa), secret: env["MOTAS_CPA_KEY"])
     }
     if let nine = env["MOTAS_9R_URL"].flatMap(URL.init(string:)) {
         try? await model.save(ProxyConfig(name: "obsession 9Router", kind: .nineRouter, baseURL: nine, auth: .password), secret: env["MOTAS_9R_PASSWORD"])
     }
-    await model.refresh()
+    await model.refresh(force: true, reason: "render").value
     for dark in [false, true] {
         render(PanelView(model: model), "panel", to: out, dark: dark)
         render(PanelView(model: model), "panel-expanded", to: out, dark: dark, expanded: true)

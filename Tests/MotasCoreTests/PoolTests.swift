@@ -164,6 +164,13 @@ struct PoolTests {
         #expect(codex.lanes.map(\.count) == [4, 1])
     }
 
+    /// Back when its windows recover: with no reset time that is unknown, not
+    /// the end of a cooldown.
+    @Test func anExhaustedMemberWithoutAResetHasNoRecovery() throws {
+        let codex = try #require(pools(proxy([account("out", .windows([limit(0)]), cooldownUntil: t0 + 1800)])).first)
+        #expect(codex.exhausted == 1 && codex.nextRecoveryAt == nil)
+    }
+
     /// CPA reports a free account's window length, 9Router does not; lanes come from periods.
     @Test func lanesMergeAcrossCPAAnd9Router() throws {
         let cpaBody = try #require(JSON.object(Fixture.data("cpa_apicall_codex_usage"))?["body"] as? String)

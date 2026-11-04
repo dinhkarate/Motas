@@ -84,7 +84,8 @@ public final class KeychainSecretStore: SecretStore, @unchecked Sendable {
 
     /// Reads the item with a prompt if macOS wants one, then migrates the 0.2
     /// items once. The cache is filled even when the migration fails; its error
-    /// is thrown, and the next approval tries it again.
+    /// is thrown, and the next approval tries it again. A declined migration
+    /// prompt caches nothing, so reads keep offering Allow…, which retries it.
     public func approve() async throws {
         try await onQueue { [self] in
             try io.withLock {
@@ -93,7 +94,7 @@ public final class KeychainSecretStore: SecretStore, @unchecked Sendable {
                 if !preferences.legacyKeychainMigrated {
                     do { try migrateLocked(&blob) } catch { migration = error }
                 }
-                cache.withLock { [blob] in $0 = blob }
+                if migration as? SecretStoreError != .needsApproval { cache.withLock { [blob] in $0 = blob } }
                 if let migration { throw migration }
             }
         }

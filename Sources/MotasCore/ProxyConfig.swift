@@ -69,6 +69,9 @@ public struct ProxyConfig: Codable, Sendable, Hashable, Identifiable {
               url.user == nil, url.password == nil, url.query == nil, url.fragment == nil else { return nil }
         return url
     }
+
+    /// The proxy's own web UI: 9Router's `/dashboard`, CLIProxyAPI's base URL.
+    public var dashboardURL: URL { kind == .nineRouter ? baseURL.appendingAPIPath("/dashboard") : baseURL }
 }
 
 public protocol ProxyAdapter: Sendable {

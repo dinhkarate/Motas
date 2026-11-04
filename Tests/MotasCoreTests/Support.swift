@@ -172,12 +172,16 @@ final class TestClock: Clock, @unchecked Sendable {
     }
 }
 
-/// A secret store whose answers a test can change: values per proxy, or one
-/// error for every read (e.g. `SecretStoreError.needsApproval`).
+/// A secret store whose answers a test can change: values per proxy, one
+/// error for every read (e.g. `SecretStoreError.needsApproval`), or one for
+/// every write. Counts approvals and invalidations.
 final class TestSecrets: SecretStore, @unchecked Sendable {
     private let lock = NSLock()
     private var values: [UUID: String]
     private var _error: (any Error)?
+    private var _writeError: (any Error)?
+    private var _approvals = 0
+    private var _invalidations = 0
 
     init(_ values: [UUID: String] = [:]) { self.values = values }
 
@@ -185,6 +189,14 @@ final class TestSecrets: SecretStore, @unchecked Sendable {
         get { lock.withLock { _error } }
         set { lock.withLock { _error = newValue } }
     }
+
+    var writeError: (any Error)? {
+        get { lock.withLock { _writeError } }
+        set { lock.withLock { _writeError = newValue } }
+    }
+
+    var approvals: Int { lock.withLock { _approvals } }
+    var invalidations: Int { lock.withLock { _invalidations } }
 
     func secret(for id: UUID) throws -> String? {
         try lock.withLock {
@@ -194,9 +206,22 @@ final class TestSecrets: SecretStore, @unchecked Sendable {
     }
 
     func presence() -> SecretPresence { lock.withLock { _error == nil ? .known(Set(values.keys)) : .locked } }
-    func approve() async throws { error = nil }
-    func setSecret(_ value: String?, for id: UUID) async throws { lock.withLock { values[id] = value } }
-    func invalidate() {}
+
+    func approve() async throws {
+        lock.withLock {
+            _approvals += 1
+            _error = nil
+        }
+    }
+
+    func setSecret(_ value: String?, for id: UUID) async throws {
+        try lock.withLock {
+            if let _writeError { throw _writeError }
+            values[id] = value
+        }
+    }
+
+    func invalidate() { lock.withLock { _invalidations += 1 } }
 }
 
 /// Waits for `semaphore` on a GCD thread, never blocking the cooperative pool.

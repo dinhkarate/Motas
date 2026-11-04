@@ -1553,3 +1553,51 @@ own the remaining work; do not reach ahead.
 - S3: `ProxyAuth.problem(with:)`, `ProxyAuth.cliTokenRecipe`,
   `ProxyConfig.baseURL(from:)` and `AccountDescriptor.summary(_:)` live in
   MotasCore so the Settings editor can share them with the CLI (S5).
+- S4: `AppModel` takes an `AppEnvironment`: paths, secret store, HTTP client,
+  notifier, `UIPreferences`, `now`, the timer's `sleep`, the widget-reload
+  hook, activation, and `observe`, which starts `NWPathMonitor`, the wake
+  observer and the CLI notice observer. `.live` is the user's; the other
+  defaults are inert, for tests and the render tool.
+- S4: `refresh(force:reason:)` returns the task that covers the request: the
+  one in flight, which then runs the queued one. The timer waits
+  `clampedRefreshInterval` after a refresh ends. A password-mode refresh can
+  take about 120 s in the worst case, so nothing assumes a refresh ends within
+  an interval or a minute.
+- S4: Notifications are delivered in a task of their own, in order, so a
+  refresh never waits for macOS's permission prompt.
+- S4: Saving a proxy adopts the new settings only after the secret write, so
+  no refresh pairs a new URL with the old secret. A failed write drops the
+  store's cache and throws `ProxySaveError.keychainNotUpdated`; the settings
+  stay saved. Gap: if `SecItemUpdate` itself fails after a good read, the
+  old secret stays in the item and the next refresh uses it with the new
+  settings. `test` uses the stored secret only while kind, URL and sign-in
+  are unchanged, like `save`.
+- S4: A corrupt settings.json met by `update`, `save` or an external-change
+  reload shows the banner; the reload keeps the settings in memory, and the
+  next good read clears the banner. Other write errors are only thrown. With
+  no enabled proxy a refresh shows the empty state and saves nothing, so an
+  unreadable settings.json never overwrites the last snapshot.
+- S4: `HeaderStatus` is `.offline` or `.updated(fetchedAt)`; stale states are
+  left to S5. The widget kind `dev.motas.pool` is repeated in MotasUI, which
+  does not depend on MotasWidgetKit.
+- S4: Clicks: proxy-back, pool alerts and alerts about a proxy removed since
+  open the panel. The menu-bar item is the `NSStatusBarButton` found in the
+  app's windows. The notification delegate is set only when running from
+  Motas.app.
+- S4: Outside Motas.app (`Bundle.main.bundleURL` is no `.app`, as through
+  the Homebrew `motas` symlink), anything but a command prints help to stderr
+  and exits 64 instead of launching a second app. `MotasCLI.run` takes the
+  bundle URL (default `Bundle.main.bundleURL`), so `main.swift` is unchanged.
+  This amends §8 "Anything else launches the app".
+- S4: Carried over from S1–S3:
+  - `AccountSnapshot.rateLimitedUntil` is saved (decoded if present), so a
+    relaunch still waits for a rate limit.
+  - `ProxyState(seed:)` normalises restored plans by §2.6, including the
+    Antigravity tier rule ("Antigravity" is no plan).
+  - An exhausted member whose windows give no recovery time has none, even
+    while a cooldown ends sooner (amends the S2 note).
+  - `AlertEngine(timeZone:)` writes days in that zone (default: the user's).
+    A pool or proxy missing from an evaluation starts its confirmation
+    afresh.
+  - `approve()` caches nothing when the user declines the 0.2 migration
+    prompt, so Allow… stays on offer and retries it (amends the S3 note).

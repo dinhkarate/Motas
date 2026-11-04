@@ -1,6 +1,5 @@
 import MotasCore
 import MotasDesign
-import ServiceManagement
 import SwiftUI
 
 public struct SettingsView: View {
@@ -201,7 +200,6 @@ struct TestSummary: View {
 
 struct GeneralTab: View {
     @ObservedObject var model: AppModel
-    @State private var launchAtLogin = SMAppService.mainApp.status == .enabled
     @State private var notificationResult: String?
     @State private var error: String?
 
@@ -223,16 +221,12 @@ struct GeneralTab: View {
                 }
                 if let notificationResult { Text(notificationResult).font(.caption).foregroundStyle(.secondary) }
             }
-            Toggle("Launch at login", isOn: $launchAtLogin)
-                .onChange(of: launchAtLogin) { _, on in
-                    do {
-                        if on { try SMAppService.mainApp.register() } else { try SMAppService.mainApp.unregister() }
-                        error = nil
-                    } catch {
-                        self.error = "Launch at login needs the installed Motas.app."
-                        launchAtLogin = SMAppService.mainApp.status == .enabled
-                    }
+            Toggle("Launch at login", isOn: Binding(
+                get: { model.launchesAtLogin },
+                set: { on in
+                    do { try model.setLaunchAtLogin(on); error = nil } catch { self.error = "Launch at login needs the installed Motas.app." }
                 }
+            ))
             if let error { Text(error).font(.caption).foregroundStyle(.red) }
         }
         .formStyle(.grouped)

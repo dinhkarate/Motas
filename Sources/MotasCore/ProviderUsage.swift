@@ -164,11 +164,21 @@ public enum ProviderUsage {
     /// "Antigravity Starter Quota" → "Starter".
     static func antigravityPlan(_ root: [String: Any]) -> String? {
         let plan = root.string("plan")
-        let paid = root.dict("subscriptionInfo")?.dict("paidTier")?.string("name")
-        guard var name = normalisedPlan(paid ?? (plan == "Antigravity" ? nil : plan)) else { return nil }
+        return antigravityTier(root.dict("subscriptionInfo")?.dict("paidTier")?.string("name") ?? (plan == "Antigravity" ? nil : plan))
+    }
+
+    private static func antigravityTier(_ name: String?) -> String? {
+        guard var name = normalisedPlan(name) else { return nil }
         for prefix in ["Google ", "Antigravity "] where name.hasPrefix(prefix) { name.removeFirst(prefix.count) }
         if name.hasSuffix(" Quota") { name.removeLast(" Quota".count) }
         return normalisedPlan(name)
+    }
+
+    /// A plan that was not just read (a restored snapshot's), by the same
+    /// rules: an Antigravity plan is a tier name, never "Antigravity".
+    static func normalisedPlan(_ plan: String?, provider: Provider) -> String? {
+        guard provider == .antigravity else { return normalisedPlan(plan) }
+        return antigravityTier(plan == "Antigravity" ? nil : plan)
     }
 
     // MARK: CLIProxyAPI (upstream bodies from /api-call)

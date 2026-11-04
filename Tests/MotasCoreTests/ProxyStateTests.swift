@@ -82,6 +82,16 @@ struct ProxyStateTests {
         #expect(unknown.records["a"]?.nextReadAt == t0 + 5 * minute)
     }
 
+    /// The limit is kept in the snapshot, so a relaunch still waits for it.
+    @Test func aRateLimitOutlivesARelaunch() throws {
+        var state = ProxyState(seed: nil)
+        let limited = state.apply(outcome([a], [a.id: .failed(.rateLimited(until: t0 + 120 * minute, "429"))]),
+                                  config: productionConfig, now: t0)
+        let restored = try JSONDecoder().decode(ProxySnapshot.self, from: JSONEncoder().encode(limited))
+        #expect(restored.accounts.first?.rateLimitedUntil == t0 + 120 * minute)
+        #expect(ProxyState(seed: restored).due([a], now: t0 + 60 * minute, force: true).isEmpty)
+    }
+
     @Test func unmeteredWithoutRecentWindowsAtOnce() throws {
         var state = ProxyState(seed: nil)
         let snapshot = state.read(a, unmetered, at: t0)
@@ -234,6 +244,22 @@ struct ProxyStateTests {
         let rejected = AccountSnapshot(id: "r", provider: .codex, label: "r", state: .active, quota: .rejected("Credential refresh failed"))
         let reseeded = ProxyState(seed: ProxySnapshot(id: UUID(), name: "p", kind: .nineRouter, fetchedAt: t0, health: .ok, accounts: [rejected]))
         #expect(reseeded.records["r"]?.isRejected == true)
+    }
+
+    /// Plans restored from an older snapshot follow today's rules: "unknown"
+    /// is none, and an Antigravity plan is its tier, never "Antigravity".
+    @Test func restoredPlansAreNormalised() {
+        func restored(_ plan: String, _ provider: Provider) -> [String?] {
+            let account = AccountSnapshot(id: "x", provider: provider, label: "x", plan: plan, metadataPlan: plan, state: .active,
+                                          quota: .failed("Timed out"))
+            let state = ProxyState(seed: ProxySnapshot(id: UUID(), name: "p", kind: .nineRouter, fetchedAt: t0, health: .ok, accounts: [account]))
+            return [state.records["x"]?.plan, state.accounts.first?.metadataPlan]
+        }
+        #expect(restored("unknown", .codex) == [nil, nil])
+        #expect(restored("plus", .codex) == ["plus", "plus"])
+        #expect(restored("Antigravity", .antigravity) == [nil, nil])
+        #expect(restored("Google AI Plus", .antigravity) == ["AI Plus", "AI Plus"])
+        #expect(restored("Starter", .antigravity) == ["Starter", "Starter"])
     }
 }
 

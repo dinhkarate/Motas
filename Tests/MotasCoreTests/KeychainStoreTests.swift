@@ -14,6 +14,7 @@ final class FakeKeychain: KeychainBackend, @unchecked Sendable {
     private var legacyLocked: Bool
     private var _calls: [String] = []
     private var _deleteFailures: [UUID: OSStatus] = [:]
+    private var _declinesLegacy = false
     private let writeFailure: OSStatus?
     /// Interactive reads of the item wait here until `release()` opens it for good.
     private let gate: DispatchSemaphore?
@@ -45,6 +46,12 @@ final class FakeKeychain: KeychainBackend, @unchecked Sendable {
         set { lock.withLock { _deleteFailures = newValue } }
     }
 
+    /// While set, the user declines the 0.2 items' prompt.
+    var declinesLegacy: Bool {
+        get { lock.withLock { _declinesLegacy } }
+        set { lock.withLock { _declinesLegacy = newValue } }
+    }
+
     func release() { gate?.signal() }
 
     func read(interactive: Bool) throws -> Data? {
@@ -69,6 +76,7 @@ final class FakeKeychain: KeychainBackend, @unchecked Sendable {
     func readLegacy(interactive: Bool) throws -> [UUID: String] {
         record("readLegacy(interactive: \(interactive))")
         return try lock.withLock {
+            if interactive, _declinesLegacy { throw SecretStoreError.needsApproval }
             if interactive { legacyLocked = false } else if legacyLocked { throw SecretStoreError.needsApproval }
             return _legacy
         }
@@ -291,6 +299,23 @@ struct KeychainStoreTests {
         #expect(throws: SecretStoreError.needsApproval) { try store.secret(for: b) }
         try await store.approve()
         #expect(store.presence() == .known([a, b]) && preferences.legacyKeychainMigrated)
+    }
+
+    /// A declined prompt for the 0.2 items caches nothing, so Allow… stays on
+    /// offer, and the next approval migrates them.
+    @Test func aDeclinedMigrationKeepsOfferingApproval() async throws {
+        let keychain = FakeKeychain(item: itemData([c: "token-c"]), legacy: [a: "legacy-a"], legacyLocked: true)
+        keychain.declinesLegacy = true
+        let preferences = temporaryPreferences(legacyKeychainMigrated: false)
+        let store = store(keychain, preferences: preferences)
+        await #expect(throws: SecretStoreError.needsApproval) { try await store.approve() }
+        #expect(store.presence() == .locked)
+        #expect(throws: SecretStoreError.needsApproval) { try store.secret(for: c) }
+        #expect(!preferences.legacyKeychainMigrated && keychain.legacy == [a: "legacy-a"])
+
+        keychain.declinesLegacy = false
+        try await store.approve()
+        #expect(store.presence() == .known([a, c]) && preferences.legacyKeychainMigrated)
     }
 
     @Test func withoutLegacyItemsNothingIsPending() throws {

@@ -14,7 +14,7 @@ public struct MenuBarLabel: View {
     public init(model: AppModel) { self.model = model }
 
     public var body: some View {
-        let gauge = Pool.gauge(model.pools, pinned: model.preferences.menuBarPool)
+        let gauge = Pool.gauge(model.pools, pinned: model.menuBarPool)
         let problem = model.snapshot.proxies.contains { !$0.health.isOK }
         HStack(spacing: 4) {
             Image(nsImage: MenuBarGauge.image(top: gauge.first?.reserve, bottom: gauge.dropFirst().first?.reserve,
@@ -65,12 +65,12 @@ public struct PanelView: View {
     public var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             header
-            if let error = model.appError {
+            ForEach([model.settingsError, model.secretError, model.saveError].compactMap { $0 }, id: \.self) { error in
                 Banner(text: error, symbol: "exclamationmark.octagon.fill", tint: .red)
             }
             if model.needsKeychainAccess {
                 Banner(text: "Motas needs Keychain access to read proxy credentials.", symbol: "key.fill", tint: .orange,
-                       action: ("Allow…", { Task { await model.approveKeychainAccess() } }))
+                       action: ("Allow…", { Task { await model.approveKeychain() } }))
             }
             if model.isConfigured {
                 if providers.count > 1 { filterPills }
@@ -96,6 +96,7 @@ public struct PanelView: View {
         .padding(16)
         .frame(width: 340)
         .environment(\.locale, Design.locale)
+        .onAppear { model.panelOpened() }
     }
 
     private var providers: [Provider] {
@@ -107,13 +108,15 @@ public struct PanelView: View {
         HStack(alignment: .firstTextBaseline) {
             Text("Motas").font(.system(size: 15, weight: .semibold))
             Spacer()
-            if model.snapshot.fetchedAt > .distantPast {
-                Text("Updated \(Design.relative(model.snapshot.fetchedAt))").font(.caption).foregroundStyle(.secondary)
+            switch model.headerStatus {
+            case .offline: Text("Offline").font(.caption).foregroundStyle(.secondary)
+            case .updated(let date): Text("Updated \(Design.relative(date))").font(.caption).foregroundStyle(.secondary)
+            case nil: EmptyView()
             }
             if model.isRefreshing {
                 ProgressView().controlSize(.mini).frame(width: 20)
             } else {
-                IconButton("arrow.clockwise", help: "Refresh now") { Task { await model.refresh() } }
+                IconButton("arrow.clockwise", help: "Refresh now") { model.refresh(force: true, reason: "manual") }
                     .keyboardShortcut("r")
                     .disabled(!model.isConfigured)
             }

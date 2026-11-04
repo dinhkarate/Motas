@@ -68,10 +68,17 @@ public enum MotasCLI {
 
     /// The exit code: 0 ok, 64 usage, 65 bad input, 69 proxy unreachable, 75
     /// Keychain approval needed, 1 anything else. nil when `args` launch the
-    /// app, which then never builds `env`.
-    public static func run(_ args: [String], env makeEnv: @autoclosure () -> CLIEnvironment) -> Int32? {
-        guard args.count > 1, ["proxy", "help", "--help", "-h", "version", "--version"].contains(args[1]) else { return nil }
+    /// app, which then never builds `env`: only when `bundle` is an app, so
+    /// the Homebrew `motas` symlink prints help rather than start a second app.
+    public static func run(_ args: [String], bundle: URL = Bundle.main.bundleURL,
+                           env makeEnv: @autoclosure () -> CLIEnvironment) -> Int32? {
+        let command = args.count > 1 && ["proxy", "help", "--help", "-h", "version", "--version"].contains(args[1])
+        guard command || bundle.pathExtension != "app" else { return nil }
         let env = makeEnv()
+        guard command else {
+            env.err(help)
+            return 64
+        }
         do {
             switch args[1] {
             case "proxy": try ProxyCommand(env: env, args: args.dropFirst(2)).run()

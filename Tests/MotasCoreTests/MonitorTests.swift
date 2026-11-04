@@ -254,7 +254,7 @@ struct LegacyDecodingTests {
         let account = AccountSnapshot(
             id: "a", provider: .codex, label: "a@example.com", email: "a@example.com", identity: "acct", plan: "free",
             metadataPlan: "plus", state: .active, quota: .rejected("Credential refresh failed"), quotaObservedAt: t0,
-            lastReadError: "Timed out", nextReadAt: t0 + 60, cooldownUntil: t0 + 120, coolingDown: true,
+            lastReadError: "Timed out", nextReadAt: t0 + 60, rateLimitedUntil: t0 + 90, cooldownUntil: t0 + 120, coolingDown: true,
             lockedModels: ["gpt-6": t0 + 900], proxyNote: ProxyNote(message: "[429]", at: t0), extras: UsageExtras(resetCredits: 1),
             displayHint: "node")
         let encoder = JSONEncoder(), decoder = JSONDecoder()

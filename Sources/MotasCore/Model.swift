@@ -179,6 +179,8 @@ public struct AccountSnapshot: Codable, Sendable, Hashable, Identifiable {
     /// Why the latest read failed while older windows are shown.
     public var lastReadError: String?
     public var nextReadAt: Date?
+    /// Nothing is read before it, not even when forced; kept so a relaunch knows.
+    public var rateLimitedUntil: Date?
     public var cooldownUntil: Date?
     public var coolingDown: Bool
     /// Models the proxy has locked, with the instant each lock ends.
@@ -190,7 +192,7 @@ public struct AccountSnapshot: Codable, Sendable, Hashable, Identifiable {
 
     public init(id: String, provider: Provider, label: String, email: String? = nil, identity: String? = nil,
                 plan: String? = nil, metadataPlan: String? = nil, state: AccountState, quota: QuotaReading,
-                quotaObservedAt: Date? = nil, lastReadError: String? = nil, nextReadAt: Date? = nil,
+                quotaObservedAt: Date? = nil, lastReadError: String? = nil, nextReadAt: Date? = nil, rateLimitedUntil: Date? = nil,
                 cooldownUntil: Date? = nil, coolingDown: Bool = false, lockedModels: [String: Date] = [:],
                 proxyNote: ProxyNote? = nil, extras: UsageExtras = UsageExtras(), displayHint: String? = nil) {
         self.id = id
@@ -205,6 +207,7 @@ public struct AccountSnapshot: Codable, Sendable, Hashable, Identifiable {
         self.quotaObservedAt = quotaObservedAt
         self.lastReadError = lastReadError
         self.nextReadAt = nextReadAt
+        self.rateLimitedUntil = rateLimitedUntil
         self.cooldownUntil = cooldownUntil
         self.coolingDown = coolingDown
         self.lockedModels = lockedModels
@@ -229,6 +232,7 @@ public struct AccountSnapshot: Codable, Sendable, Hashable, Identifiable {
         quotaObservedAt = try c.decodeIfPresent(Date.self, forKey: .quotaObservedAt)
         lastReadError = try c.decodeIfPresent(String.self, forKey: .lastReadError)
         nextReadAt = try c.decodeIfPresent(Date.self, forKey: .nextReadAt)
+        rateLimitedUntil = try c.decodeIfPresent(Date.self, forKey: .rateLimitedUntil)
         cooldownUntil = try c.decodeIfPresent(Date.self, forKey: .cooldownUntil)
         coolingDown = try c.decodeIfPresent(Bool.self, forKey: .coolingDown) ?? false
         lockedModels = try c.decodeIfPresent([String: Date].self, forKey: .lockedModels) ?? [:]
