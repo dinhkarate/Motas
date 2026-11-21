@@ -68,10 +68,18 @@ if [ ! -f dist/AppIcon.icns ] || [ scripts/dev/make-icon.swift -nt dist/AppIcon.
 fi
 cp dist/AppIcon.icns "$APP/Contents/Resources/"
 
+# Signing identity: MOTAS_SIGN_IDENTITY, else the first Apple Development
+# certificate in the keychain, else ad-hoc ("-"). A certificate keeps the same
+# Team ID across builds, so Keychain's "Always Allow" survives a rebuild; an
+# ad-hoc build is a new app to Keychain every time.
+IDENTITY="${MOTAS_SIGN_IDENTITY:-$(security find-identity -v -p codesigning 2>/dev/null \
+    | sed -n 's/.*"\(Apple Development: [^"]*\)".*/\1/p' | head -1)}"
+IDENTITY="${IDENTITY:--}"
+
 # Sign inside-out: extension first (sandboxed, app group), then the app.
-codesign --force --options runtime --timestamp=none --sign - \
+codesign --force --options runtime --timestamp=none --sign "$IDENTITY" \
     --entitlements packaging/entitlements/widget.entitlements "$APPEX"
-codesign --force --options runtime --timestamp=none --sign - \
+codesign --force --options runtime --timestamp=none --sign "$IDENTITY" \
     --entitlements packaging/entitlements/app.entitlements "$APP"
 codesign --verify --strict --deep "$APP"
-echo "built $APP ($VERSION, $BUNDLE_ID)"
+echo "built $APP ($VERSION, $BUNDLE_ID, signed: ${IDENTITY/#-/ad-hoc})"
