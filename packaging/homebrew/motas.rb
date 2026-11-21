@@ -4,7 +4,7 @@ cask "motas" do
 
   url "https://github.com/dinhkarate/Motas/releases/download/v#{version}/Motas-#{version}.zip"
   name "Motas"
-  desc "Menu bar AI quota monitor for CLIProxyAPI and 9Router proxies"
+  desc "Menu bar AI quota monitor for CLIProxyAPI, 9Router and Orca accounts"
   homepage "https://github.com/dinhkarate/Motas"
 
   depends_on arch: :arm64
