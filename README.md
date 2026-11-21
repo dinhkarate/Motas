@@ -10,6 +10,12 @@ Tools like CodexBar read the accounts logged in on *this* Mac. Motas reads the
 proxies you run for a team or a fleet (CLIProxyAPI and 9Router), and the agent
 accounts Orca manages. Pick any mix of sources.
 
+<p align="center">
+  <img src="docs/images/motas-demo.gif" width="640" alt="Motas: the menu bar panel with pooled Codex, Claude, Gemini and Grok quota, per-quota options, and Settings → Quotas">
+</p>
+
+<p align="center"><sub>Demo data from an anonymized capture. <a href="https://github.com/dinhkarate/Motas/releases/download/v0.4.0/motas-demo.mp4">MP4</a></sub></p>
+
 - **Menu bar:** the headline pool's reserve, e.g. `Codex 51%`, a gauge for the
   next pool, and a warning sign for actionable problems.
 - **Panel:** compact pool cards, then proxy → provider → account rows with
