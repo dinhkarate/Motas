@@ -426,7 +426,7 @@ public final class AppModel: ObservableObject {
     /// The stored secret belongs to the saved server: a new kind, URL or
     /// sign-in needs a new one.
     static func needsNewSecret(_ saved: ProxyConfig, _ proxy: ProxyConfig) -> Bool {
-        (saved.kind, saved.baseURL, saved.auth) != (proxy.kind, proxy.baseURL, proxy.auth)
+        proxy.auth.usesSecret && (saved.kind, saved.baseURL, saved.auth) != (proxy.kind, proxy.baseURL, proxy.auth)
     }
 
     /// Adds or replaces a proxy: settings first, then the secret (nil keeps
@@ -449,8 +449,9 @@ public final class AppModel: ObservableObject {
 
     /// Removes a proxy from settings, then its secret.
     public func remove(_ proxy: UUID) async throws {
+        let usedSecret = settings.proxies.first { $0.id == proxy }?.auth.usesSecret ?? true
         if adopt(try write { $0.proxies.removeAll { $0.id == proxy } }) { refresh(force: false, reason: "settings") }
-        try await store(nil, for: proxy)
+        if usedSecret { try await store(nil, for: proxy) }
     }
 
     /// Writes a secret, Motas in front for a possible prompt. On failure the

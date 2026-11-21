@@ -917,7 +917,7 @@ struct AccountRow: View {
     private func shows(_ note: ProxyNote) -> Bool {
         switch proxyKind {
         case .nineRouter: note.at.map { now.timeIntervalSince($0) <= 86_400 } ?? false
-        case .cliProxyAPI: true
+        case .cliProxyAPI, .orca: true
         }
     }
 

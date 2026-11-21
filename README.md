@@ -7,7 +7,8 @@ subscription quota held by your **remote AI proxies** — every account on every
 server, in one place.
 
 Tools like CodexBar read the accounts logged in on *this* Mac. Motas reads the
-proxies you run for a team or a fleet: CLIProxyAPI and 9Router today.
+proxies you run for a team or a fleet (CLIProxyAPI and 9Router), and the agent
+accounts Orca manages. Pick any mix of sources.
 
 - **Menu bar:** the headline pool's reserve, e.g. `Codex 51%`, a gauge for the
   next pool, and a warning sign for actionable problems.
@@ -33,6 +34,7 @@ demo mode.
 |---|---|---|
 | [CLIProxyAPI](https://github.com/router-for-me/CLIProxyAPI) | management key (`management.allow-remote: true` for remote URLs) | `GET /v0/management/auth-files`, then `POST /v0/management/api-call` per account — the proxy calls the provider's usage URL with that account's own token |
 | [9Router](https://github.com/decolua/9router) | CLI token (recommended) or dashboard password | `GET /api/providers`, `GET /api/usage/{id}`; password mode also `POST /api/auth/login` |
+| Orca | none | `orca account list --json` once per refresh: the quota Orca already reads for every Claude and Codex account it manages, active or not, and for the CLIs signed in on this Mac (Antigravity, Grok …) |
 
 Per-account quota through CLIProxyAPI is supported for Codex, Antigravity and
 Claude. Motas does **not** use CLIProxyAPI's `/quota/fetch` (it returns 501 for
@@ -109,6 +111,7 @@ and refuses to write a file that still looks like a token.
 motas proxy list
 motas proxy add --kind 9router --name Home --url https://9r.example --auth cli-token --secret-stdin
 motas proxy test Home
+motas proxy add --kind orca --name Orca      # Orca's accounts; needs Orca running, no secret
 ```
 
 Secrets are read from stdin (or a no-echo prompt on a terminal), never from

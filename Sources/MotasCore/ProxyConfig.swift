@@ -8,12 +8,32 @@ public enum ProxyAuth: String, Codable, Sendable {
     case password
     /// 9Router CLI token (`x-9r-cli-token`): admin-equivalent and permanent.
     case cliToken
+    /// No credential: Orca signs in to its own accounts.
+    case none
 
     /// What new proxies of `kind` use: the CLI token for 9Router.
-    public static func newDefault(for kind: ProxyKind) -> ProxyAuth { kind == .nineRouter ? .cliToken : .managementKey }
+    public static func newDefault(for kind: ProxyKind) -> ProxyAuth {
+        switch kind {
+        case .nineRouter: .cliToken
+        case .cliProxyAPI: .managementKey
+        case .orca: .none
+        }
+    }
+
+    /// The ways `kind` can sign in.
+    public static func allowed(for kind: ProxyKind) -> [ProxyAuth] {
+        switch kind {
+        case .nineRouter: [.cliToken, .password]
+        case .cliProxyAPI: [.managementKey]
+        case .orca: [.none]
+        }
+    }
 
     /// A 9Router can run without login, so only a password may be empty.
-    public var needsSecret: Bool { self != .password }
+    public var needsSecret: Bool { self != .password && self != .none }
+
+    /// Whether a secret is stored at all; Keychain is never read for `.none`.
+    public var usesSecret: Bool { self != .none }
 
     /// Derives a 9Router CLI token on its server: the first 16 hex characters
     /// of sha256(machine-id + "9r-cli-auth" + cli-secret).
@@ -70,8 +90,34 @@ public struct ProxyConfig: Codable, Sendable, Hashable, Identifiable {
         return url
     }
 
-    /// The proxy's own web UI: 9Router's `/dashboard`, CLIProxyAPI's base URL.
-    public var dashboardURL: URL { kind == .nineRouter ? baseURL.appendingAPIPath("/dashboard") : baseURL }
+    /// An Orca CLI path as Settings and the CLI accept it: an absolute path,
+    /// or a file URL, to an executable file.
+    public static func cliURL(from text: String) -> URL? {
+        let text = text.trimmingCharacters(in: .whitespaces)
+        let url = text.hasPrefix("file://") ? URL(string: text) : text.hasPrefix("/") ? URL(fileURLWithPath: text) : nil
+        guard let url, url.isFileURL, FileManager.default.isExecutableFile(atPath: url.path) else { return nil }
+        return url
+    }
+
+    /// The proxy's own web UI: 9Router's `/dashboard`, CLIProxyAPI's base URL,
+    /// Orca.app for Orca.
+    public var dashboardURL: URL {
+        switch kind {
+        case .nineRouter: baseURL.appendingAPIPath("/dashboard")
+        case .cliProxyAPI: baseURL
+        case .orca: Self.appBundle(containing: baseURL) ?? baseURL
+        }
+    }
+
+    /// The .app that holds `file`, if any.
+    static func appBundle(containing file: URL) -> URL? {
+        var url = file
+        while url.path != "/" {
+            if url.pathExtension == "app" { return url }
+            url.deleteLastPathComponent()
+        }
+        return nil
+    }
 }
 
 public protocol ProxyAdapter: Sendable {
@@ -204,6 +250,7 @@ public enum ProxyAdapters {
         switch config.kind {
         case .cliProxyAPI: CLIProxyAPIAdapter(config: config, managementKey: secret, http: http, now: now)
         case .nineRouter: NineRouterAdapter(config: config, secret: secret, http: http, now: now)
+        case .orca: OrcaAdapter(config: config, now: now)
         }
     }
 }

@@ -33,6 +33,15 @@ struct LiveTests {
         #expect(!snap.accounts.isEmpty)
     }
 
+    /// Orca's own CLI at its default path; Orca must be running.
+    @Test func orca() async throws {
+        let config = ProxyConfig(name: "live", kind: .orca, baseURL: ProxyKind.orca.defaultBaseURL)
+        let snap = await read(config, secret: nil)
+        report(snap)
+        #expect(snap.health == .ok)
+        #expect(!snap.accounts.isEmpty)
+    }
+
     func report(_ snap: ProxySnapshot) {
         print("[live] \(snap.kind.displayName) health=\(snap.health.logLabel)")
         for a in snap.accounts {

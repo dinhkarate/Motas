@@ -1708,3 +1708,14 @@ own the remaining work; do not reach ahead.
     menu-bar window collapses to ~150 pt), the panel is 360 pt wide, cards
     are top-aligned, the footer buttons carry text, and the card detail
     counts accounts that need re-login.
+- 0.4 Orca source (2026-11-22): `ProxyKind.orca` with `ProxyAuth.none`.
+  `baseURL` is the `orca` executable (default inside /Applications/Orca.app).
+  `OrcaAdapter` runs `orca account list --json` once per listing (about
+  0.3 s, 80 MB for that moment) and serves every reading from it: managed
+  Claude and Codex accounts (active from `rateLimits.<p>`, inactive from
+  `rateLimits.inactive<P>Accounts`), then each other provider whose entry is
+  `ok` (Antigravity buckets map to the gemini and claude-gpt groups). Fable's
+  weekly limit is a detail window. Figures Orca read more than 3 h ago are a
+  transient failure; a 401 or revoked token is a rejected credential. Keychain
+  is never read for an Orca source. Codex identity is Orca's
+  `providerAccountId`, so an account on both Orca and a proxy counts once.

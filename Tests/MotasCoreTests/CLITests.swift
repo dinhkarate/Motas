@@ -228,6 +228,20 @@ struct CLITests {
         if !secret.isEmpty { #expect(!machine.transcript.contains(secret)) }
     }
 
+    @Test func anOrcaSourceTakesNoSecretAndNoKeychain() async throws {
+        let machine = CLIMachine()
+        let added = await machine.motas("proxy", "add", "--kind", "orca", "--name", "Orca", "--url", "/bin/ls")
+        #expect(added.code == 0 && added.prompts.isEmpty)
+        let orca = try #require(machine.proxy("Orca"))
+        #expect(orca.kind == .orca && orca.auth == .none && orca.baseURL.path == "/bin/ls")
+        #expect(await machine.motas("proxy", "set-secret", "Orca", "--secret-stdin", input: ["x"]).code == 64)
+        #expect(await machine.motas("proxy", "add", "--kind", "orca", "--name", "O2", "--url", "/nonexistent/orca").code == 65)
+        let listed = await machine.motas("proxy", "list")
+        #expect(listed.out.contains("orca") && listed.out.contains("none"))
+        #expect(await machine.motas("proxy", "remove", "Orca").code == 0)
+        #expect(machine.proxies.isEmpty)
+    }
+
     @Test func aRejectedSecretChangesNothing() async {
         let machine = CLIMachine()
         let eof = await machine.motas("proxy", "add", "--kind", "9router", "--name", "P", "--url", "https://router.example.com",
@@ -299,15 +313,15 @@ struct CLITests {
         (["proxy", "enable"], "Name one proxy, by id or name."),
         (["proxy", "remove", "a", "b"], "Name one proxy, by id or name."),
         (["proxy", "set-secret", "--secret-stdin"], "Name one proxy, by id or name."),
-        (["proxy", "add", "--kind", "9router", "--name", "P"], "proxy add needs --kind, --name and --url."),
+        (["proxy", "add", "--kind", "9router", "--name", "P"], "proxy add needs --url for 9router."),
         (["proxy", "add", "--kind", "9router", "--name", "P", "--url"], "--url needs a value."),
-        (["proxy", "add", "--kind", "squid", "--name", "P", "--url", "https://p.example.com"], "--kind is 9router or cliproxyapi."),
+        (["proxy", "add", "--kind", "squid", "--name", "P", "--url", "https://p.example.com"], "--kind is 9router, cliproxyapi or orca."),
         (["proxy", "add", "--kind", "9router", "--auth", "token", "--name", "P", "--url", "https://p.example.com"],
          "--auth is cli-token, password or management-key."),
         (["proxy", "add", "--kind", "cliproxyapi", "--auth", "password", "--name", "P", "--url", "https://p.example.com"],
-         "9router signs in with cli-token or password, cliproxyapi with management-key."),
+         "9router signs in with cli-token or password, cliproxyapi with management-key, orca with none."),
         (["proxy", "add", "--kind", "9router", "--auth", "management-key", "--name", "P", "--url", "https://p.example.com"],
-         "9router signs in with cli-token or password, cliproxyapi with management-key."),
+         "9router signs in with cli-token or password, cliproxyapi with management-key, orca with none."),
     ])
     func usageErrorsExit64(args: [String], message: String) async {
         let machine = CLIMachine()

@@ -52,7 +52,7 @@ public actor Monitor {
             let state = state(for: config)
             let health: ProxyHealth
             do {
-                let secret = try secrets.secret(for: config.id)
+                let secret = config.auth.usesSecret ? try secrets.secret(for: config.id) : nil
                 if config.auth.needsSecret, secret?.isEmpty != false {
                     health = .failed(.missingCredential)
                 } else {

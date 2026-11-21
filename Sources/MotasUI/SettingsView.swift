@@ -31,8 +31,8 @@ struct ProxiesTab: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             if model.settings.proxies.isEmpty {
-                ContentUnavailableView("No proxies", systemImage: "server.rack",
-                                       description: Text("Add a CLIProxyAPI or 9Router server."))
+                ContentUnavailableView("No sources", systemImage: "server.rack",
+                                       description: Text("Add a CLIProxyAPI or 9Router server, or Orca's accounts."))
             } else {
                 List {
                     ForEach(model.settings.proxies) { proxy in
@@ -45,7 +45,7 @@ struct ProxiesTab: View {
                             Circle().fill(status(proxy).color).frame(width: 7, height: 7)
                             VStack(alignment: .leading, spacing: 1) {
                                 Text(proxy.name)
-                                Text("\(proxy.kind.displayName) · \(proxy.baseURL.absoluteString)")
+                                Text("\(proxy.kind.displayName) · \(proxy.kind == .orca ? proxy.baseURL.path : proxy.baseURL.absoluteString)")
                                     .font(.caption).foregroundStyle(.secondary)
                             }
                             Spacer()
@@ -58,6 +58,14 @@ struct ProxiesTab: View {
             if let error { Text(error).font(.caption).foregroundStyle(.red) }
             HStack {
                 Spacer()
+                if canAddOrca {
+                    Button("Add Orca") {
+                        perform {
+                            try await model.save(ProxyConfig(name: "Orca", kind: .orca, baseURL: ProxyKind.orca.defaultBaseURL), secret: nil)
+                        }
+                    }
+                    .help("Show the quota of the Claude and Codex accounts Orca manages, and the CLIs signed in on this Mac")
+                }
                 Button("Add Proxy…") {
                     isNew = true
                     editing = ProxyConfig(name: "", kind: .cliProxyAPI, baseURL: ProxyKind.cliProxyAPI.defaultBaseURL)
@@ -68,6 +76,12 @@ struct ProxiesTab: View {
         .sheet(item: $editing) { proxy in
             ProxyEditor(model: model, original: proxy, isNew: isNew) { editing = nil }
         }
+    }
+
+    /// Orca is installed and not added yet.
+    private var canAddOrca: Bool {
+        !model.settings.proxies.contains { $0.kind == .orca }
+            && FileManager.default.isExecutableFile(atPath: ProxyKind.orca.defaultBaseURL.path)
     }
 
     private func status(_ proxy: ProxyConfig) -> (color: Color, message: String) {
@@ -114,17 +128,21 @@ struct ProxyEditor: View {
                         }
                         .labelsHidden()
                         .onChange(of: kind) { old, new in
-                            if url.isEmpty || url == old.defaultBaseURL.absoluteString { url = new.defaultBaseURL.absoluteString }
+                            if url.isEmpty || url == Self.text(old.defaultBaseURL, kind: old) { url = Self.text(new.defaultBaseURL, kind: new) }
                             if !validAuth(auth, for: new) { auth = .newDefault(for: new) }
                             testResult = nil
                         }
                     }
                     field("Name") { TextField("", text: $name, prompt: Text("e.g. vina2")) }
-                    field("URL") { TextField("", text: $url, prompt: Text(kind.defaultBaseURL.absoluteString)) }
+                    field(kind == .orca ? "Orca CLI" : "URL") {
+                        TextField("", text: $url, prompt: Text(Self.text(kind.defaultBaseURL, kind: kind)))
+                    }
                     if kind == .nineRouter { authPicker }
-                    field(secretLabel) {
-                        SecureField("", text: $secret,
-                                    prompt: Text(hasStoredSecret ? "Stored in Keychain — leave blank to keep" : "Stored in Keychain"))
+                    if auth.usesSecret {
+                        field(secretLabel) {
+                            SecureField("", text: $secret,
+                                        prompt: Text(hasStoredSecret ? "Stored in Keychain — leave blank to keep" : "Stored in Keychain"))
+                        }
                     }
                     help
                     if let problem = urlProblem { Text(problem).font(.caption).foregroundStyle(.red) }
@@ -161,7 +179,7 @@ struct ProxyEditor: View {
         .onAppear {
             name = original.name
             kind = original.kind
-            url = original.baseURL.absoluteString
+            url = Self.text(original.baseURL, kind: original.kind)
             auth = original.auth
             testResult = initialTestResult
         }
@@ -191,6 +209,9 @@ struct ProxyEditor: View {
 
     @ViewBuilder private var help: some View {
         switch (kind, auth) {
+        case (.orca, _):
+            Text("Reads the quota Orca already shows for the Claude and Codex accounts it manages, and for the CLIs signed in on this Mac. Needs Orca running; no secret, no extra requests to the providers.")
+                .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
         case (.cliProxyAPI, _):
             Text("Needs remote management enabled (management.allow-remote) for non-local URLs. Motas only reads; the proxy calls each provider's usage endpoint with the account's own token.")
                 .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
@@ -223,16 +244,22 @@ struct ProxyEditor: View {
         case .managementKey: "Management key"
         case .cliToken: "CLI token"
         case .password: "Dashboard password"
+        case .none: "Secret"
         }
     }
 
     private func validAuth(_ auth: ProxyAuth, for kind: ProxyKind) -> Bool {
-        kind == .cliProxyAPI ? auth == .managementKey : auth == .cliToken || auth == .password
+        ProxyAuth.allowed(for: kind).contains(auth)
     }
+
+    /// What the URL field shows: the CLI's path for Orca.
+    static func text(_ url: URL, kind: ProxyKind) -> String { kind == .orca ? url.path : url.absoluteString }
+
+    private var parsedURL: URL? { kind == .orca ? ProxyConfig.cliURL(from: url) : ProxyConfig.baseURL(from: url) }
 
     /// The edited proxy, when the URL is valid.
     private var draft: ProxyConfig? {
-        guard let parsed = ProxyConfig.baseURL(from: url) else { return nil }
+        guard let parsed = parsedURL else { return nil }
         var config = original
         config.kind = kind
         config.auth = auth
@@ -242,9 +269,10 @@ struct ProxyEditor: View {
     }
 
     private var urlProblem: String? {
-        ProxyConfig.baseURL(from: url) == nil
-            ? "Enter an http(s) URL with a host, no credentials, query or fragment."
-            : nil
+        guard parsedURL == nil else { return nil }
+        return kind == .orca
+            ? "Orca's CLI was not found there. Install Orca, or enter the path to its `orca` command."
+            : "Enter an http(s) URL with a host, no credentials, query or fragment."
     }
 
     private var secretProblem: String? {

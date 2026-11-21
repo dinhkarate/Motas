@@ -4,11 +4,14 @@ import Foundation
 public enum ProxyKind: String, Codable, Sendable, CaseIterable {
     case cliProxyAPI
     case nineRouter
+    /// Orca's own account list, read through its CLI; `baseURL` is the CLI.
+    case orca
 
     public var displayName: String {
         switch self {
         case .cliProxyAPI: "CLIProxyAPI"
         case .nineRouter: "9Router"
+        case .orca: "Orca"
         }
     }
 
@@ -16,6 +19,7 @@ public enum ProxyKind: String, Codable, Sendable, CaseIterable {
         switch self {
         case .cliProxyAPI: URL(string: "http://127.0.0.1:8317")!
         case .nineRouter: URL(string: "http://127.0.0.1:20128")!
+        case .orca: OrcaAdapter.defaultCLI
         }
     }
 }

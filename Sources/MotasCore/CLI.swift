@@ -105,6 +105,7 @@ public enum MotasCLI {
           motas proxy list [--json]
           motas proxy add --kind 9router|cliproxyapi --name NAME --url URL
                           [--auth cli-token|password|management-key] [--secret-stdin] [--disabled]
+          motas proxy add --kind orca --name NAME [--url /path/to/orca] [--disabled]
           motas proxy set-secret <id|name> [--secret-stdin]
           motas proxy remove|enable|disable <id|name>
           motas proxy test <id|name>
@@ -113,6 +114,10 @@ public enum MotasCLI {
         Changes reach a running Motas at once. <id|name> is a proxy's id, or its name in
         any case. --auth defaults to cli-token for 9router and management-key for
         cliproxyapi. `test` only lists the proxy's accounts.
+
+        orca reads the accounts Orca manages (Claude, Codex …) and the CLIs signed in on
+        this Mac through Orca's own CLI, by default
+        \(OrcaAdapter.defaultCLI.path). Orca must be running; it needs no secret.
 
           --secret-stdin           Read the secret as one line from stdin, without echo on a
                                    terminal. Secrets are never taken as arguments.
@@ -238,23 +243,34 @@ private struct ProxyCommand {
     }
 
     private func add(_ a: Arguments) throws {
-        guard let kindName = a.options["--kind"], let name = a.options["--name"], let urlText = a.options["--url"] else {
-            throw Exit.usage("proxy add needs --kind, --name and --url.")
+        guard let kindName = a.options["--kind"], let name = a.options["--name"] else {
+            throw Exit.usage("proxy add needs --kind and --name, and --url except for orca.")
         }
-        guard let kind = Self.kinds[kindName] else { throw Exit.usage("--kind is 9router or cliproxyapi.") }
+        guard let kind = Self.kinds[kindName] else { throw Exit.usage("--kind is 9router, cliproxyapi or orca.") }
         var auth = ProxyAuth.newDefault(for: kind)
         if let authName = a.options["--auth"] {
             guard let chosen = Self.auths[authName] else { throw Exit.usage("--auth is cli-token, password or management-key.") }
             auth = chosen
         }
-        guard (kind == .cliProxyAPI) == (auth == .managementKey) else {
-            throw Exit.usage("9router signs in with cli-token or password, cliproxyapi with management-key.")
+        guard ProxyAuth.allowed(for: kind).contains(auth) else {
+            throw Exit.usage("9router signs in with cli-token or password, cliproxyapi with management-key, orca with none.")
         }
         let trimmed = name.trimmingCharacters(in: .whitespaces)
         guard !trimmed.isEmpty else { throw Exit.badInput("The name is empty.") }
-        guard let url = ProxyConfig.baseURL(from: urlText) else {
-            throw Exit.badInput("The URL must be http or https with a host, and no credentials, query or fragment.")
+        let url: URL
+        if kind == .orca {
+            guard let cli = ProxyConfig.cliURL(from: a.options["--url"] ?? kind.defaultBaseURL.path) else {
+                throw Exit.badInput("Orca's CLI was not found: install Orca, or pass its path with --url.")
+            }
+            url = cli
+        } else {
+            guard let urlText = a.options["--url"] else { throw Exit.usage("proxy add needs --url for \(kindName).") }
+            guard let parsed = ProxyConfig.baseURL(from: urlText) else {
+                throw Exit.badInput("The URL must be http or https with a host, and no credentials, query or fragment.")
+            }
+            url = parsed
         }
+        guard auth.usesSecret || !a.flags.contains("--secret-stdin") else { throw Exit.usage("orca takes no secret.") }
         let secret = a.flags.contains("--secret-stdin") ? try readSecret(auth, for: trimmed) : nil
         if auth.needsSecret || secret != nil { try checkSecretURL(url) }
         let proxy = ProxyConfig(name: trimmed, kind: kind, baseURL: url, auth: auth, isEnabled: !a.flags.contains("--disabled"))
@@ -268,6 +284,7 @@ private struct ProxyCommand {
 
     private func setSecret(_ a: Arguments) throws {
         let proxy = try resolve(a)
+        guard proxy.auth.usesSecret else { throw Exit.usage("\(proxy.name) is an Orca source: it takes no secret.") }
         guard a.flags.contains("--secret-stdin") || env.isTTY else {
             throw Exit.usage("set-secret reads the secret from stdin: pass --secret-stdin.")
         }
@@ -280,7 +297,7 @@ private struct ProxyCommand {
     }
 
     private func remove(_ proxy: ProxyConfig) throws {
-        let stored = try keychain { try storedSecret(proxy.id) }
+        let stored = proxy.auth.usesSecret ? try keychain { try storedSecret(proxy.id) } : nil
         try updateSettings { $0.proxies.removeAll { $0.id == proxy.id } }
         defer { env.notify() }
         env.out("Removed \(proxy.name).")
@@ -299,7 +316,7 @@ private struct ProxyCommand {
 
     /// Lists only, like Settings' Test button. Offline or unreachable is 69.
     private func test(_ proxy: ProxyConfig) throws {
-        let secret = try keychain { try storedSecret(proxy.id) }
+        let secret = proxy.auth.usesSecret ? try keychain { try storedSecret(proxy.id) } : nil
         let adapter = ProxyAdapters.make(proxy, secret: secret, http: env.http)
         do {
             env.out(AccountDescriptor.summary(try bridge { try await adapter.listAccounts() }))
@@ -404,8 +421,9 @@ private struct ProxyCommand {
         return try result.withLock { $0! }.get()
     }
 
-    private static let kinds: [String: ProxyKind] = ["9router": .nineRouter, "cliproxyapi": .cliProxyAPI]
-    private static let auths: [String: ProxyAuth] = ["cli-token": .cliToken, "password": .password, "management-key": .managementKey]
+    private static let kinds: [String: ProxyKind] = ["9router": .nineRouter, "cliproxyapi": .cliProxyAPI, "orca": .orca]
+    private static let auths: [String: ProxyAuth] = ["cli-token": .cliToken, "password": .password, "management-key": .managementKey,
+                                                     "none": .none]
 
     private static func name(_ kind: ProxyKind) -> String { kinds.first { $0.value == kind }!.key }
     private static func name(_ auth: ProxyAuth) -> String { auths.first { $0.value == auth }!.key }
@@ -415,6 +433,7 @@ private struct ProxyCommand {
         case .cliToken: "CLI token"
         case .password: "Dashboard password"
         case .managementKey: "Management key"
+        case .none: "No secret"
         }
     }
 }
